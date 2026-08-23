@@ -17,6 +17,7 @@ export class ClaudeProvider implements Provider {
                 allowedTools: ["Read", "Edit", "Glob"],
                 permissionMode: "acceptEdits",
                 resume: options.resume,
+                model: options.model,
             },
         })) {
             if (message.type === "assistant" && message.message?.content) {

@@ -17,8 +17,8 @@ export class CodexProvider implements Provider {
         }
         const codex = new Codex({ apiKey });
         const thread = options.resume
-            ? codex.resumeThread(options.resume, threadOptions(options.cwd))
-            : codex.startThread(threadOptions(options.cwd));
+            ? codex.resumeThread(options.resume, threadOptions(options))
+            : codex.startThread(threadOptions(options));
 
         const { events } = await thread.runStreamed(options.prompt);
         let lastText: string | undefined;
@@ -53,17 +53,19 @@ export class CodexProvider implements Provider {
     }
 }
 
-function threadOptions(cwd: string): {
+function threadOptions(options: ProviderRunOptions): {
     workingDirectory: string;
     skipGitRepoCheck: boolean;
     sandboxMode: "workspace-write";
     approvalPolicy: "never";
+    model: string;
 } {
     return {
-        workingDirectory: cwd,
+        workingDirectory: options.cwd,
         skipGitRepoCheck: true,
         sandboxMode: "workspace-write",
         approvalPolicy: "never",
+        model: options.model,
     };
 }
 

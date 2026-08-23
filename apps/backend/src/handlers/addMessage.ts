@@ -51,6 +51,7 @@ async function runTurn(args: {
         prompt: message,
         cwd: workspace.path,
         resume: session.providerSessionId,
+        model: session.model,
     })) {
         if (event.type === "tool-call") {
             ctx.hub.publish(sessionId, {

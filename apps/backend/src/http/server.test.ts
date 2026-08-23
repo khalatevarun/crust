@@ -16,6 +16,7 @@ class MemoryRepo {
         id: string;
         workspaceId: string;
         provider: ProviderId;
+        model: string;
         messages: Message[];
         providerSessionId?: string;
     }>();
@@ -31,12 +32,12 @@ class MemoryRepo {
         return workspace;
     }
 
-    async createSession(workspaceId: string, provider: ProviderId) {
+    async createSession(workspaceId: string, provider: ProviderId, model: string) {
         if (!this.workspaces.has(workspaceId)) return null;
         const id = this.nextSession === 0 ? SID_A : idFromCounter(this.nextSession, "c");
         this.nextSession += 1;
-        this.sessions.set(id, { id, workspaceId, provider, messages: [] });
-        return { id, workspaceId, provider };
+        this.sessions.set(id, { id, workspaceId, provider, model, messages: [] });
+        return { id, workspaceId, provider, model };
     }
 
     async appendUserMessage(sessionId: string, message: string) {
@@ -73,6 +74,7 @@ class MemoryRepo {
             session: {
                 id: session.id,
                 provider: session.provider,
+                model: session.model,
                 providerSessionId: session.providerSessionId,
             },
             workspace: { id: workspace.id, path: workspace.path },
@@ -216,6 +218,21 @@ describe("http api", () => {
         ]);
     });
 
+    test("POST session rejects an unknown model for the provider", async () => {
+        const res = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: "claude", model: "gpt-5.1-codex" }),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({
+            error: "unknown model 'gpt-5.1-codex' for provider 'claude'",
+        });
+        expect(await repo.getSnapshotSummary()).toEqual([
+            { id: WID_A, name: "demo", path: "/tmp/demo", sessions: [] },
+        ]);
+    });
+
     test("POST session creates a session", async () => {
         const res = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
             method: "POST",
@@ -223,7 +240,25 @@ describe("http api", () => {
             body: JSON.stringify({ provider: "claude" }),
         });
         expect(res.status).toBe(201);
-        expect(await res.json()).toEqual({ id: SID_A, workspaceId: WID_A, provider: "claude" });
+        expect(await res.json()).toEqual({
+            id: SID_A,
+            workspaceId: WID_A,
+            provider: "claude",
+            model: "claude-sonnet-5",
+        });
+    });
+
+    test("POST session persists an explicit model from that provider's catalog", async () => {
+        const res = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: "claude", model: "claude-opus-5" }),
+        });
+        expect(res.status).toBe(201);
+        const body = await res.json() as { id: string; model: string; provider: string };
+        expect(body.provider).toBe("claude");
+        expect(body.model).toBe("claude-opus-5");
+        expect(body.id).not.toBe(SID_A);
     });
 
     test("GET messages 404s for unknown session", async () => {
@@ -263,7 +298,7 @@ describe("http api", () => {
     });
 
     test("SSE streams tool-call and assistant-message events", async () => {
-        const session = await repo.createSession(WID_A, "claude");
+        const session = await repo.createSession(WID_A, "claude", "claude-sonnet-5");
         if (!session) throw new Error("session");
         claude.events = [
             { type: "tool-call", name: "Glob", input: { pattern: "*" } },

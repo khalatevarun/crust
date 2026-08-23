@@ -8,6 +8,7 @@ export type CreateWorkspaceSchemaType = z.infer<typeof CreateWorkspaceSchema>;
 
 export const CreateSessionSchema = z.object({
     provider: z.enum(PROVIDER_IDS),
+    model: z.string().optional(),
 });
 export type CreateSessionSchemaType = z.infer<typeof CreateSessionSchema>;
 

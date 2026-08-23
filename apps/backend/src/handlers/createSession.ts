@@ -1,4 +1,4 @@
-import { CreateSessionSchema, type SessionCreatedSchemaType } from "commons";
+import { CreateSessionSchema, DEFAULT_MODEL_ID, PROVIDER_MODELS, type SessionCreatedSchemaType } from "commons";
 import type { HandlerContext } from "./context";
 import { HttpError, isObjectId, zodErrorMessage } from "../http/HttpError";
 import { PROVIDER_CREDENTIAL } from "../providers/registry";
@@ -17,15 +17,22 @@ export async function handleCreateSession(
         throw new HttpError(400, zodErrorMessage(parsed.error));
     }
 
-    const provider = ctx.providers[parsed.data.provider];
+    const providerId = parsed.data.provider;
+    const provider = ctx.providers[providerId];
     if (!provider.isConfigured()) {
         throw new HttpError(
             400,
-            `${parsed.data.provider} is not configured: missing ${PROVIDER_CREDENTIAL[parsed.data.provider]}`,
+            `${providerId} is not configured: missing ${PROVIDER_CREDENTIAL[providerId]}`,
         );
     }
 
-    const session = await ctx.repo.createSession(workspaceId, parsed.data.provider);
+    const catalog = PROVIDER_MODELS[providerId];
+    if (parsed.data.model && !catalog.some((option) => option.id === parsed.data.model)) {
+        throw new HttpError(400, `unknown model '${parsed.data.model}' for provider '${providerId}'`);
+    }
+
+    const model = parsed.data.model ?? DEFAULT_MODEL_ID[providerId];
+    const session = await ctx.repo.createSession(workspaceId, providerId, model);
     if (!session) {
         throw new HttpError(404, "workspace not found");
     }

@@ -31,6 +31,7 @@ export class OpencodeProvider implements Provider {
             const prompt = client.session.prompt({
                 path: { id: sessionId },
                 body: {
+                    model: { providerID: "opencode", modelID: options.model },
                     parts: [{ type: "text", text: options.prompt }],
                 },
             });
