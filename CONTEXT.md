@@ -19,3 +19,7 @@ _Avoid_: model, SDK, backend (a Provider may itself offer several models; that s
 **Turn**:
 One round trip: a user message sent into a Session, and everything the chosen Provider does in response (tool calls, final text) before going idle again.
 _Avoid_: message (a Turn produces one user message but the response side isn't itself "a message" — it's a stream of events).
+
+**Model**:
+The specific model id a Session's Provider runs Turns with (e.g. `claude-opus-5` under the Claude Provider). Chosen once, at Session creation, from that Provider's own catalog of offered models; falls back to that Provider's default when not chosen explicitly. Fixed for the Session's lifetime, same as Provider itself.
+_Avoid_: version, tier.
