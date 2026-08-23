@@ -1,7 +1,10 @@
 import type { ProviderId, SessionEvent } from "commons";
 import { handleAddMessage, handleCreateSession, handleCreateWorkspace } from "../handlers";
+import { handleDeleteDevice, handleListDevices, handlePairDevice } from "../handlers/devices";
+import { authenticateRequest } from "./auth";
 import type { Provider } from "../providers/Provider";
 import type { ChatRepository } from "../repository/ChatRepository";
+import type { DeviceRepository } from "../repository/DeviceRepository";
 import { corsHeaders, errorResponse, HttpError, isObjectId, json } from "./HttpError";
 import { SessionHub } from "./SessionHub";
 
@@ -9,6 +12,7 @@ export type ServerDeps = {
     repo: ChatRepository;
     providers: Record<ProviderId, Provider>;
     hub: SessionHub;
+    devices: DeviceRepository;
     port?: number;
     hostname?: string;
 };
@@ -34,17 +38,65 @@ function optionsResponse(): Response {
     return new Response(null, { status: 204, headers: corsHeaders });
 }
 
+function empty(status: number): Response {
+    return new Response(null, { status, headers: corsHeaders });
+}
+
 export function createServer(deps: ServerDeps) {
     const ctx = { repo: deps.repo, providers: deps.providers, hub: deps.hub };
+
+    async function requireAuth(req: Request, allowQueryToken = false) {
+        await authenticateRequest(req, deps.devices, allowQueryToken);
+    }
 
     return Bun.serve({
         port: deps.port ?? 3001,
         hostname: deps.hostname ?? "localhost",
         routes: {
+            "/api/devices/pair": {
+                OPTIONS: optionsResponse,
+                POST: async (req) => {
+                    try {
+                        const body = await readJson(req);
+                        const device = await handlePairDevice(req, body, deps.devices);
+                        return json(device, 201);
+                    } catch (err) {
+                        return errorResponse(err);
+                    }
+                },
+            },
+            "/api/devices": {
+                OPTIONS: optionsResponse,
+                GET: async (req) => {
+                    try {
+                        await requireAuth(req);
+                        return json(await handleListDevices(deps.devices));
+                    } catch (err) {
+                        return errorResponse(err);
+                    }
+                },
+            },
+            "/api/devices/:id": {
+                OPTIONS: optionsResponse,
+                DELETE: async (req) => {
+                    try {
+                        await requireAuth(req);
+                        const id = req.params.id;
+                        if (!isObjectId(id)) {
+                            throw new HttpError(400, "invalid device id");
+                        }
+                        await handleDeleteDevice(id, deps.devices);
+                        return empty(204);
+                    } catch (err) {
+                        return errorResponse(err);
+                    }
+                },
+            },
             "/api/workspaces": {
                 OPTIONS: optionsResponse,
                 POST: async (req) => {
                     try {
+                        await requireAuth(req);
                         const body = await readJson(req);
                         const workspace = await handleCreateWorkspace(body, ctx);
                         return json(workspace, 201);
@@ -57,6 +109,7 @@ export function createServer(deps: ServerDeps) {
                 OPTIONS: optionsResponse,
                 POST: async (req) => {
                     try {
+                        await requireAuth(req);
                         const body = await readJson(req);
                         const session = await handleCreateSession(req.params.workspaceId, body, ctx);
                         return json(session, 201);
@@ -69,6 +122,7 @@ export function createServer(deps: ServerDeps) {
                 OPTIONS: optionsResponse,
                 GET: async (req) => {
                     try {
+                        await requireAuth(req);
                         const sessionId = req.params.sessionId;
                         if (!isObjectId(sessionId)) {
                             throw new HttpError(400, "invalid sessionId format");
@@ -84,6 +138,7 @@ export function createServer(deps: ServerDeps) {
                 },
                 POST: async (req) => {
                     try {
+                        await requireAuth(req);
                         const body = await readJson(req);
                         const result = await handleAddMessage(req.params.sessionId, body, ctx);
                         return json(result, 202);
@@ -94,8 +149,9 @@ export function createServer(deps: ServerDeps) {
             },
             "/api/snapshot": {
                 OPTIONS: optionsResponse,
-                GET: async () => {
+                GET: async (req) => {
                     try {
+                        await requireAuth(req);
                         const workspaces = await deps.repo.getSnapshotSummary();
                         return json({ workspaces });
                     } catch (err) {
@@ -107,6 +163,7 @@ export function createServer(deps: ServerDeps) {
                 OPTIONS: optionsResponse,
                 GET: async (req) => {
                     try {
+                        await requireAuth(req, true);
                         const sessionId = req.params.sessionId;
                         if (!isObjectId(sessionId)) {
                             throw new HttpError(400, "invalid sessionId format");

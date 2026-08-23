@@ -22,5 +22,13 @@ export const Session = new mongoose.Schema({
     model: { type: String, required: true },
 })
 
+export const Device = new mongoose.Schema({
+    name: { type: String, required: true },
+    tokenHash: { type: String, required: true, unique: true },
+    createdAt: { type: Date, default: Date.now },
+    lastUsedAt: { type: Date },
+});
+
 export const WorkspaceModel = model("Workspace", Workspace);
 export const SessionModel = model("Session", Session);
+export const DeviceModel = model("Device", Device);

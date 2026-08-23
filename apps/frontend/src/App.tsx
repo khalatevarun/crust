@@ -5,18 +5,21 @@ import { DEFAULT_MODEL_ID, isProviderId, PROVIDER_IDS, PROVIDER_MODELS } from "c
 import { AppContext } from "./context/AppContext";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
-import { addMessage, createSession, createWorkspace, getSnapshot } from "./api";
+import { addMessage, BACKEND_PUBLIC_URL, createSession, createWorkspace, deleteDevice, ensureDesktopToken, getSnapshot, listDevices, pairDevice, type DeviceInfo } from "./api";
+import QRCode from "qrcode";
 import { useSessionEvents } from "./hooks/useSessionEvents";
 
 export function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [screen, setScreen] = useState<"chat" | "devices">("chat");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getSnapshot()
+    ensureDesktopToken()
+      .then(() => getSnapshot())
       .then((data) => {
         if (cancelled) return;
         setWorkspaces(data.workspaces);
@@ -51,8 +54,12 @@ export function App() {
   return (
     <AppContext.Provider value={{ workspaces, setWorkspaces, activeSessionId, setActiveSessionId }}>
       <div className="flex h-screen bg-background text-foreground">
-        <Sidebar />
-        <ChatWindow />
+        <Sidebar onOpenDevices={() => setScreen("devices")} />
+        {screen === "devices" ? (
+          <DevicesScreen onBack={() => setScreen("chat")} />
+        ) : (
+          <ChatWindow />
+        )}
       </div>
     </AppContext.Provider>
   );
@@ -185,7 +192,7 @@ function ChatBubble({ message }: { message: Message }) {
   );
 }
 
-function Sidebar() {
+function Sidebar({ onOpenDevices }: { onOpenDevices: () => void }) {
   const { workspaces, setWorkspaces, activeSessionId, setActiveSessionId } = useContext(AppContext);
   const [path, setPath] = useState("");
   const [provider, setProvider] = useState<ProviderId>("claude");
@@ -225,6 +232,12 @@ function Sidebar() {
         <h1 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Workspaces
         </h1>
+        <button
+          onClick={onOpenDevices}
+          className="mt-2 w-full rounded-md border border-input px-2 py-1.5 text-left text-xs text-foreground hover:bg-sidebar-accent"
+        >
+          Devices
+        </button>
         <label className="mt-2 block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Provider
@@ -357,6 +370,118 @@ function WorkspaceItem({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function formatWhen(value?: string) {
+  if (!value) return "never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function DevicesScreen({ onBack }: { onBack: () => void }) {
+  const [devices, setDevices] = useState<DeviceInfo[]>([]);
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    const data = await listDevices();
+    setDevices(data.devices);
+  }
+
+  useEffect(() => {
+    void refresh().catch((err: unknown) => {
+      setError(err instanceof Error ? err.message : "failed to load devices");
+    });
+  }, []);
+
+  async function pair() {
+    const nextName = name.trim();
+    if (!nextName) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const device = await pairDevice(nextName);
+      setName("");
+      const payload = JSON.stringify({ token: device.token, backendUrl: BACKEND_PUBLIC_URL });
+      const url = await QRCode.toDataURL(payload, { margin: 1, width: 220 });
+      setQrUrl(url);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to pair");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke(id: string) {
+    setError(null);
+    try {
+      await deleteDevice(id);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to revoke");
+    }
+  }
+
+  return (
+    <div className="flex flex-1 flex-col min-w-0">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="text-sm font-medium">Devices</div>
+        <button
+          onClick={onBack}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          Back to chat
+        </button>
+      </div>
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <div className="space-y-2">
+          {devices.map((device) => (
+            <div
+              key={device.id}
+              className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm">{device.name}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  paired {formatWhen(device.createdAt)} · last used {formatWhen(device.lastUsedAt)}
+                </div>
+              </div>
+              <button
+                onClick={() => void revoke(device.id)}
+                className="shrink-0 text-xs text-destructive hover:underline"
+              >
+                Revoke
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
+            placeholder="Device name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void pair(); }}
+          />
+          <button
+            onClick={() => void pair()}
+            disabled={busy || !name.trim()}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40"
+          >
+            Pair new device
+          </button>
+        </div>
+        {qrUrl && (
+          <img src={qrUrl} alt="Pairing QR code" className="h-[220px] w-[220px] rounded-md bg-white p-2" />
+        )}
+      </div>
     </div>
   );
 }
