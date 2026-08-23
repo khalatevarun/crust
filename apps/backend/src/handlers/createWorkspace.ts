@@ -1,16 +1,15 @@
-import { CreateWorkspaceSchema, type OutgoingMessageType } from "commons";
+import { CreateWorkspaceSchema, type WorkspaceCreatedSchemaType } from "commons";
 import type { HandlerContext } from "./context";
+import { HttpError, zodErrorMessage } from "../http/HttpError";
 
-export async function handleCreateWorkspace(payload: unknown, ctx: HandlerContext): Promise<OutgoingMessageType> {
-    const { success, data } = CreateWorkspaceSchema.safeParse(payload);
-    if (!success) {
-        throw new Error("incorrect schema");
+export async function handleCreateWorkspace(
+    payload: unknown,
+    ctx: HandlerContext,
+): Promise<WorkspaceCreatedSchemaType> {
+    const parsed = CreateWorkspaceSchema.safeParse(payload);
+    if (!parsed.success) {
+        throw new HttpError(400, zodErrorMessage(parsed.error));
     }
 
-    const workspace = await ctx.repo.createWorkspace(data.path);
-
-    return {
-        type: "workspace-created",
-        payload: workspace,
-    };
+    return ctx.repo.createWorkspace(parsed.data.path);
 }

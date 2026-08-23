@@ -1,16 +1,25 @@
-import { CreateSessionSchema, type OutgoingMessageType } from "commons";
+import { CreateSessionSchema, type SessionCreatedSchemaType } from "commons";
 import type { HandlerContext } from "./context";
+import { HttpError, isObjectId, zodErrorMessage } from "../http/HttpError";
 
-export async function handleCreateSession(payload: unknown, ctx: HandlerContext): Promise<OutgoingMessageType> {
-    const { success, data } = CreateSessionSchema.safeParse(payload);
-    if (!success) {
-        throw new Error("incorrect schema");
+export async function handleCreateSession(
+    workspaceId: string,
+    payload: unknown,
+    ctx: HandlerContext,
+): Promise<SessionCreatedSchemaType> {
+    if (!isObjectId(workspaceId)) {
+        throw new HttpError(400, "invalid workspaceId format");
     }
 
-    const session = await ctx.repo.createSession(data.workspaceId);
+    const parsed = CreateSessionSchema.safeParse(payload);
+    if (!parsed.success) {
+        throw new HttpError(400, zodErrorMessage(parsed.error));
+    }
 
-    return {
-        type: "create-session",
-        payload: session,
-    };
+    const session = await ctx.repo.createSession(workspaceId);
+    if (!session) {
+        throw new HttpError(404, "workspace not found");
+    }
+
+    return session;
 }

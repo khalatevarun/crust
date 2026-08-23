@@ -1,110 +1,54 @@
-import { useSocket } from "./hooks/useSocket";
 import "./index.css";
 import { useContext, useEffect, useState } from "react";
-import type { Message, OutgoingMessageType, Workspace } from "commons"
+import type { Message, WorkspaceSummary } from "commons";
 import { AppContext } from "./context/AppContext";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
-
+import { addMessage, createSession, createWorkspace, getSnapshot } from "./api";
+import { useSessionEvents } from "./hooks/useSessionEvents";
 
 export function App() {
-
-  const { loading, socket } = useSocket();
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!socket) return;
-
-    socket.onmessage = (event) => {
-      const parsedData: OutgoingMessageType = JSON.parse(event.data);
-      if (parsedData.type === "init") {
-        setWorkspaces(prev => {
-          const pending = prev.filter(w => w.id === "");
-          const merged = [...parsedData.workspaces];
-          for (const p of pending) {
-            if (!merged.some(w => w.path === p.path)) {
-              merged.push(p);
-            }
-          }
-          return merged;
-        })
-      }
-      if (parsedData.type === "workspace-created") {
-        setWorkspaces(workspaces => {
-          let found = false;
-          const next = workspaces.map(w => {
-            if (w.id === "" && w.path === parsedData.payload.path) {
-              found = true;
-              return {
-                ...w,
-                ...parsedData.payload
-              }
-            }
-            return w;
-          });
-          if (!found) {
-            next.push({ ...parsedData.payload, sessions: [] });
-          }
-          return next;
-        })
-      }
-      if (parsedData.type === "create-session") {
-        setWorkspaces(workspaces => workspaces.map(w => {
-          if (w.id !== parsedData.payload.workspaceId) return w;
-          let replaced = false;
-          const sessions = w.sessions.map(s => {
-            if (!replaced && s.id === "") {
-              replaced = true;
-              return { ...s, id: parsedData.payload.id };
-            }
-            return s;
-          });
-          if (!replaced) {
-            sessions.push({ id: parsedData.payload.id, messages: [] });
-          }
-          return { ...w, sessions };
-        }))
-      }
-      if (parsedData.type === "assistant-message") {
-        const { sessionId, message } = parsedData.payload;
-        if (!sessionId || !message) return;
-        setWorkspaces(workspaces => workspaces.map(w => ({
-          ...w,
-          sessions: w.sessions.map(s => s.id !== sessionId ? s : {
-            ...s,
-            messages: [...s.messages, { role: "assistant", payload: { type: "text", message } }]
-          })
-        })))
-      }
-      if (parsedData.type === "tool-call") {
-        const { sessionId, id, name, input } = parsedData.payload;
-        if (!sessionId || !name) return;
-        setWorkspaces(workspaces => workspaces.map(w => ({
-          ...w,
-          sessions: w.sessions.map(s => s.id !== sessionId ? s : {
-            ...s,
-            messages: [...s.messages, {
-              role: "assistant",
-              payload: { type: "tool-call", id, name, input }
-            }]
-          })
-        })))
-      }
-    }
-  }, [socket])
+    let cancelled = false;
+    getSnapshot()
+      .then((data) => {
+        if (cancelled) return;
+        setWorkspaces(data.workspaces);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : "failed to load");
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground text-sm">
         Connecting...
       </div>
-    )
+    );
   }
 
+  if (loadError) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-muted-foreground text-sm">
+        {loadError}
+      </div>
+    );
+  }
 
   return (
-    <AppContext.Provider value={{ workspaces, socket, setWorkspaces, activeSessionId, setActiveSessionId }}>
+    <AppContext.Provider value={{ workspaces, setWorkspaces, activeSessionId, setActiveSessionId }}>
       <div className="flex h-screen bg-background text-foreground">
         <Sidebar />
         <ChatWindow />
@@ -114,33 +58,22 @@ export function App() {
 }
 
 function ChatWindow() {
-  const { socket, workspaces, setWorkspaces, activeSessionId } = useContext(AppContext);
+  const { activeSessionId } = useContext(AppContext);
+  const { messages, setMessages } = useSessionEvents(activeSessionId);
   const [input, setInput] = useState("");
-
-  const session = workspaces
-    .flatMap(w => w.sessions)
-    .find(s => s.id === activeSessionId);
 
   function sendMessage() {
     const text = input.trim();
     if (!text || !activeSessionId) return;
 
-    setWorkspaces(ws => ws.map(w => ({
-      ...w,
-      sessions: w.sessions.map(s => s.id !== activeSessionId ? s : {
-        ...s,
-        messages: [...s.messages, { role: "user", payload: { message: text } }]
-      })
-    })));
-
-    socket?.send(JSON.stringify({
-      type: "add-message",
-      payload: { sessionId: activeSessionId, message: text }
-    }));
+    setMessages((prev) => [...prev, { role: "user", payload: { message: text } }]);
+    void addMessage(activeSessionId, text).catch((err) => {
+      console.error("failed to send message", err);
+    });
     setInput("");
   }
 
-  if (!activeSessionId || !session) {
+  if (!activeSessionId) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
         Select or create a session to start chatting
@@ -155,12 +88,12 @@ function ChatWindow() {
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {session.messages.length === 0 && (
+        {messages.length === 0 && (
           <div className="text-sm text-muted-foreground">
             No messages yet. Say hello.
           </div>
         )}
-        {session.messages.map((m, i) => (
+        {messages.map((m, i) => (
           <ChatBubble key={i} message={m} />
         ))}
       </div>
@@ -252,40 +185,33 @@ function ChatBubble({ message }: { message: Message }) {
 }
 
 function Sidebar() {
-
-  const { socket, workspaces, setWorkspaces, activeSessionId, setActiveSessionId } = useContext(AppContext);
+  const { workspaces, setWorkspaces, activeSessionId, setActiveSessionId } = useContext(AppContext);
   const [path, setPath] = useState("");
 
-  function addWorkspace() {
+  async function addWorkspace() {
     if (!path.trim()) return;
-
-    setWorkspaces(w => [...w, {
-      id: "",
-      name: "",
-      path: path,
-      sessions: []
-    }])
-    socket?.send(JSON.stringify({
-      type: "create-workspace",
-      payload: {
-        path,
-      }
-    }))
-    setPath("")
+    const nextPath = path;
+    setPath("");
+    try {
+      const workspace = await createWorkspace(nextPath);
+      setWorkspaces((ws) => [...ws, { ...workspace, sessions: [] }]);
+    } catch (err) {
+      console.error("failed to create workspace", err);
+    }
   }
 
-  function addSession(workspaceId: string) {
+  async function addSession(workspaceId: string) {
     if (!workspaceId) return;
-
-    setWorkspaces(ws => ws.map(w => w.id === workspaceId ? {
-      ...w,
-      sessions: [...w.sessions, { id: "", messages: [] }]
-    } : w));
-
-    socket?.send(JSON.stringify({
-      type: "create-session",
-      payload: { workspaceId }
-    }))
+    try {
+      const session = await createSession(workspaceId);
+      setWorkspaces((ws) => ws.map((w) =>
+        w.id === workspaceId
+          ? { ...w, sessions: [...w.sessions, { id: session.id }] }
+          : w
+      ));
+    } catch (err) {
+      console.error("failed to create session", err);
+    }
   }
 
   return (
@@ -302,7 +228,7 @@ function Sidebar() {
             No workspaces yet
           </div>
         )}
-        {workspaces.map(w => (
+        {workspaces.map((w) => (
           <WorkspaceItem
             key={w.id || w.path}
             workspace={w}
@@ -320,17 +246,17 @@ function Sidebar() {
           type="text"
           value={path}
           onChange={(e) => setPath(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") addWorkspace(); }}
+          onKeyDown={(e) => { if (e.key === "Enter") void addWorkspace(); }}
         />
         <button
-          onClick={addWorkspace}
+          onClick={() => void addWorkspace()}
           className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
         >
           Add
         </button>
       </div>
     </div>
-  )
+  );
 }
 
 function WorkspaceItem({
@@ -339,28 +265,26 @@ function WorkspaceItem({
   activeSessionId,
   onSelectSession,
 }: {
-  workspace: Workspace,
-  onAddSession: () => void,
-  activeSessionId: string | null,
-  onSelectSession: (id: string) => void,
+  workspace: WorkspaceSummary;
+  onAddSession: () => void;
+  activeSessionId: string | null;
+  onSelectSession: (id: string) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const pending = workspace.id === "";
 
   return (
     <div className="rounded-md">
       <div
         className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
       >
-        <span className={`truncate text-sm ${pending ? "italic text-muted-foreground" : ""}`}>
-          {workspace.name || workspace.path || "Creating..."}
+        <span className="truncate text-sm">
+          {workspace.name || workspace.path}
         </span>
         <button
           onClick={(e) => { e.stopPropagation(); onAddSession(); }}
-          disabled={pending}
           title="New session"
-          className="shrink-0 rounded px-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          className="shrink-0 rounded px-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         >
           + session
         </button>
@@ -373,26 +297,23 @@ function WorkspaceItem({
               No sessions yet
             </div>
           )}
-          {workspace.sessions.map((s, i) => (
+          {workspace.sessions.map((s) => (
             <button
-              key={s.id || `pending-${i}`}
-              disabled={!s.id}
+              key={s.id}
               onClick={() => onSelectSession(s.id)}
-              className={`block w-full truncate rounded px-2 py-1 text-left text-xs disabled:cursor-not-allowed ${
+              className={`block w-full truncate rounded px-2 py-1 text-left text-xs ${
                 s.id === activeSessionId
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : s.id === ""
-                    ? "italic text-muted-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               }`}
             >
-              {s.id ? `Session ${s.id.slice(-6)}` : "Creating..."}
+              Session {s.id.slice(-6)}
             </button>
           ))}
         </div>
       )}
     </div>
-  )
+  );
 }
 
 export default App;
