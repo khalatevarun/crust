@@ -19,6 +19,7 @@ export const Session = new mongoose.Schema({
         default: "claude",
     },
     providerSessionId: String,
+    model: { type: String, required: true },
 })
 
 export const WorkspaceModel = model("Workspace", Workspace);

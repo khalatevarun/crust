@@ -18,7 +18,7 @@ export class GeminiProvider implements Provider {
         }
         const ai = new GoogleGenAI({ apiKey });
         const chat = ai.chats.create({
-            model: "gemini-2.5-flash",
+            model: options.model,
             config: {
                 systemInstruction: `You are a coding assistant. The workspace directory is ${options.cwd}. You cannot read or edit files directly.`,
             },

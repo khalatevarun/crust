@@ -1,6 +1,5 @@
 import { WorkspaceModel, SessionModel } from "db";
-import { isProviderId, type Message, type ProviderId, type Workspace, type WorkspaceSummary } from "commons";
-
+import { DEFAULT_MODEL_ID, isProviderId, type Message, type ProviderId, type Workspace, type WorkspaceSummary } from "commons";
 
 export type ToolCall = {
     id?: string;
@@ -11,6 +10,7 @@ export type ToolCall = {
 export type SessionRecord = {
     id: string;
     provider: ProviderId;
+    model: string;
     providerSessionId?: string;
 };
 
@@ -26,12 +26,12 @@ export class ChatRepository {
         return { id: workspace._id.toString(), name, path };
     }
 
-    async createSession(workspaceId: string, provider: ProviderId) {
+    async createSession(workspaceId: string, provider: ProviderId, model: string) {
         const workspace = await WorkspaceModel.findById(workspaceId);
         if (!workspace) return null;
 
-        const session = await SessionModel.create({ workspaceId, provider, conversation: [] });
-        return { id: session._id.toString(), workspaceId, provider };
+        const session = await SessionModel.create({ workspaceId, provider, model, conversation: [] });
+        return { id: session._id.toString(), workspaceId, provider, model };
     }
 
     async appendUserMessage(sessionId: string, message: string) {
@@ -68,11 +68,14 @@ export class ChatRepository {
         const workspace = await WorkspaceModel.findOne({ _id: session.workspaceId });
         if (!workspace) return null;
 
+        const provider = isProviderId(session.provider) ? session.provider : "claude";
         return {
             session: {
                 id: session._id.toString(),
-                provider: isProviderId(session.provider) ? session.provider : "claude",
-
+                provider,
+                model: typeof session.model === "string" && session.model.length > 0
+                    ? session.model
+                    : DEFAULT_MODEL_ID[provider],
                 providerSessionId: session.providerSessionId ?? undefined,
             },
             workspace: {

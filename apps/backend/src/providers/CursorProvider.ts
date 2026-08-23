@@ -19,12 +19,12 @@ export class CursorProvider implements Provider {
             ? await Agent.resume(options.resume, { apiKey })
             : await Agent.create({
                 apiKey,
-                model: { id: "composer-2.5" },
+                model: { id: options.model },
                 local: { cwd: options.cwd },
             });
 
         try {
-            const run = await agent.send(options.prompt);
+            const run = await agent.send(options.prompt, { model: { id: options.model } });
             for await (const event of run.stream()) {
                 if (event.type === "tool_call" && event.status === "running") {
                     yield {

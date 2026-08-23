@@ -12,6 +12,7 @@ export const SessionsCreatedSchema = z.object({
     id: z.string(),
     workspaceId: z.string(),
     provider: z.enum(PROVIDER_IDS),
+    model: z.string(),
 });
 export type SessionCreatedSchemaType = z.infer<typeof SessionsCreatedSchema>;
 

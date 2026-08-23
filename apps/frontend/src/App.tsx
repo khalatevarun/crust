@@ -1,7 +1,7 @@
 import "./index.css";
 import { useContext, useEffect, useState } from "react";
 import type { Message, ProviderId, WorkspaceSummary } from "commons";
-import { isProviderId, PROVIDER_IDS } from "commons";
+import { DEFAULT_MODEL_ID, isProviderId, PROVIDER_IDS, PROVIDER_MODELS } from "commons";
 import { AppContext } from "./context/AppContext";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
@@ -189,6 +189,7 @@ function Sidebar() {
   const { workspaces, setWorkspaces, activeSessionId, setActiveSessionId } = useContext(AppContext);
   const [path, setPath] = useState("");
   const [provider, setProvider] = useState<ProviderId>("claude");
+  const [model, setModel] = useState(DEFAULT_MODEL_ID.claude);
   const [sessionError, setSessionError] = useState<string | null>(null);
 
   async function addWorkspace() {
@@ -207,7 +208,7 @@ function Sidebar() {
     if (!workspaceId) return;
     setSessionError(null);
     try {
-      const session = await createSession(workspaceId, provider);
+      const session = await createSession(workspaceId, provider, model);
       setWorkspaces((ws) => ws.map((w) =>
         w.id === workspaceId
           ? { ...w, sessions: [...w.sessions, { id: session.id }] }
@@ -232,13 +233,31 @@ function Sidebar() {
             value={provider}
             onChange={(e) => {
               const next = e.target.value;
-              if (isProviderId(next)) setProvider(next);
+              if (!isProviderId(next)) return;
+              setProvider(next);
+              setModel(DEFAULT_MODEL_ID[next]);
             }}
             className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
           >
             {PROVIDER_IDS.map((id) => (
               <option key={id} value={id}>
                 {id}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="mt-2 block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Model
+          </span>
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+          >
+            {PROVIDER_MODELS[provider].map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
               </option>
             ))}
           </select>

@@ -7,6 +7,7 @@ export type AgentEvent =
 export type ProviderRunOptions = {
     prompt: string;
     cwd: string;
+    model: string;
     resume?: string;
 };
 

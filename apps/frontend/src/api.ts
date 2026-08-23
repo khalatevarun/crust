@@ -31,11 +31,12 @@ export function createWorkspace(path: string): Promise<{ id: string; name: strin
 export function createSession(
     workspaceId: string,
     provider: ProviderId,
-): Promise<{ id: string; workspaceId: string; provider: ProviderId }> {
+    model: string,
+): Promise<{ id: string; workspaceId: string; provider: ProviderId; model: string }> {
     return fetch(`${API_BASE}/api/workspaces/${workspaceId}/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider }),
+        body: JSON.stringify({ provider, model }),
     }).then((res) => parseJson(res));
 }
 
