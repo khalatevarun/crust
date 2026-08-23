@@ -120,16 +120,75 @@ class FakeProvider implements Provider {
     }
 }
 
+const DID_A = "eeeeeeeeeeeeeeeeeeeeeeee";
+
+class MemoryDevices {
+    items = new Map<string, {
+        id: string;
+        name: string;
+        tokenHash: string;
+        createdAt: Date;
+        lastUsedAt?: Date;
+    }>();
+    next = 0;
+
+    async count() {
+        return this.items.size;
+    }
+
+    async create(name: string, tokenHash: string) {
+        const id = this.next === 0 ? DID_A : idFromCounter(this.next, "e");
+        this.next += 1;
+        const createdAt = new Date("2026-01-01T00:00:00.000Z");
+        const record = { id, name, tokenHash, createdAt };
+        this.items.set(id, record);
+        return { id, name, createdAt };
+    }
+
+    async findByTokenHash(tokenHash: string) {
+        const device = [...this.items.values()].find((item) => item.tokenHash === tokenHash);
+        if (!device) return null;
+        return device;
+    }
+
+    async list() {
+        return [...this.items.values()].map((item) => ({
+            id: item.id,
+            name: item.name,
+            createdAt: item.createdAt,
+            lastUsedAt: item.lastUsedAt,
+        }));
+    }
+
+    async delete(id: string) {
+        return this.items.delete(id);
+    }
+
+    touchLastUsed(id: string) {
+        const device = this.items.get(id);
+        if (device) device.lastUsedAt = new Date();
+    }
+}
+
 describe("http api", () => {
     const repo = new MemoryRepo();
+    const devices = new MemoryDevices();
     const claude = new FakeProvider("claude", true);
     const hub = new SessionHub();
     let server: ReturnType<typeof createServer>;
     let base: string;
+    let token = "";
 
-    beforeAll(() => {
+    function api(path: string, init: RequestInit = {}) {
+        const headers = new Headers(init.headers);
+        if (token) headers.set("Authorization", `Bearer ${token}`);
+        return fetch(`${base}${path}`, { ...init, headers });
+    }
+
+    beforeAll(async () => {
         server = createServer({
             repo: repo as never,
+            devices: devices as never,
             providers: {
                 claude,
                 codex: new FakeProvider("codex", false),
@@ -142,14 +201,62 @@ describe("http api", () => {
             hostname: "127.0.0.1",
         });
         base = `http://${server.hostname}:${server.port}`;
+        const paired = await api(`/api/devices/pair`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: "Desktop browser" }),
+        });
+        const body = await paired.json() as { token: string };
+        token = body.token;
     });
 
     afterAll(() => {
         server.stop(true);
     });
 
+    test("requests without a token are 401 once a device exists", async () => {
+        const res = await fetch(`${base}/api/snapshot`);
+        expect(res.status).toBe(401);
+        expect(await res.json()).toEqual({ error: "unauthorized" });
+    });
+
+    test("POST /api/devices/pair without a token is 401 after bootstrap", async () => {
+        const res = await fetch(`${base}/api/devices/pair`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: "Phone" }),
+        });
+        expect(res.status).toBe(401);
+    });
+
+    test("an authenticated device can pair another device and list both", async () => {
+        const paired = await api("/api/devices/pair", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: "Phone" }),
+        });
+        expect(paired.status).toBe(201);
+        const phone = await paired.json() as { id: string; name: string; token: string };
+        expect(phone.name).toBe("Phone");
+        expect(phone.token.length).toBeGreaterThan(10);
+
+        const listed = await api("/api/devices");
+        expect(listed.status).toBe(200);
+        const body = await listed.json() as { devices: { name: string }[] };
+        expect(body.devices.map((d) => d.name)).toEqual(["Desktop browser", "Phone"]);
+
+        const revoked = await api(`/api/devices/${phone.id}`, { method: "DELETE" });
+        expect(revoked.status).toBe(204);
+
+        const asPhone = await fetch(`${base}/api/snapshot`, {
+            headers: { Authorization: `Bearer ${phone.token}` },
+        });
+        expect(asPhone.status).toBe(401);
+    });
+
+
     test("POST /api/workspaces creates a workspace", async () => {
-        const res = await fetch(`${base}/api/workspaces`, {
+        const res = await api(`/api/workspaces`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ path: "/tmp/demo" }),
@@ -160,7 +267,7 @@ describe("http api", () => {
     });
 
     test("POST /api/workspaces rejects invalid body", async () => {
-        const res = await fetch(`${base}/api/workspaces`, {
+        const res = await api(`/api/workspaces`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({}),
@@ -171,7 +278,7 @@ describe("http api", () => {
     });
 
     test("GET /api/snapshot returns metadata only", async () => {
-        const res = await fetch(`${base}/api/snapshot`);
+        const res = await api(`/api/snapshot`);
         expect(res.status).toBe(200);
         const body = await res.json();
         expect(body).toEqual({
@@ -180,14 +287,14 @@ describe("http api", () => {
     });
 
     test("POST session returns 400 for bad id format and 404 when missing", async () => {
-        const bad = await fetch(`${base}/api/workspaces/not-an-id/sessions`, {
+        const bad = await api(`/api/workspaces/not-an-id/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider: "claude" }),
         });
         expect(bad.status).toBe(400);
 
-        const missing = await fetch(`${base}/api/workspaces/${WID_MISSING}/sessions`, {
+        const missing = await api(`/api/workspaces/${WID_MISSING}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider: "claude" }),
@@ -197,14 +304,14 @@ describe("http api", () => {
     });
 
     test("POST session rejects a missing provider and an unconfigured provider", async () => {
-        const missing = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
+        const missing = await api(`/api/workspaces/${WID_A}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({}),
         });
         expect(missing.status).toBe(400);
 
-        const unconfigured = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
+        const unconfigured = await api(`/api/workspaces/${WID_A}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider: "codex" }),
@@ -219,7 +326,7 @@ describe("http api", () => {
     });
 
     test("POST session rejects an unknown model for the provider", async () => {
-        const res = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
+        const res = await api(`/api/workspaces/${WID_A}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider: "claude", model: "gpt-5.1-codex" }),
@@ -234,7 +341,7 @@ describe("http api", () => {
     });
 
     test("POST session creates a session", async () => {
-        const res = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
+        const res = await api(`/api/workspaces/${WID_A}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider: "claude" }),
@@ -249,7 +356,7 @@ describe("http api", () => {
     });
 
     test("POST session persists an explicit model from that provider's catalog", async () => {
-        const res = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
+        const res = await api(`/api/workspaces/${WID_A}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider: "claude", model: "claude-opus-5" }),
@@ -262,7 +369,7 @@ describe("http api", () => {
     });
 
     test("GET messages 404s for unknown session", async () => {
-        const res = await fetch(`${base}/api/sessions/${SID_MISSING}/messages`);
+        const res = await api(`/api/sessions/${SID_MISSING}/messages`);
         expect(res.status).toBe(404);
         expect(await res.json()).toEqual({ error: "session not found" });
     });
@@ -273,7 +380,7 @@ describe("http api", () => {
             { type: "done", ok: true, result: "done", providerSessionId: "prov-1" },
         ];
 
-        const res = await fetch(`${base}/api/sessions/${SID_A}/messages`, {
+        const res = await api(`/api/sessions/${SID_A}/messages`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message: "hello" }),
@@ -287,7 +394,7 @@ describe("http api", () => {
 
     test("GET messages returns the transcript after the agent finishes", async () => {
         await Bun.sleep(20);
-        const res = await fetch(`${base}/api/sessions/${SID_A}/messages`);
+        const res = await api(`/api/sessions/${SID_A}/messages`);
         expect(res.status).toBe(200);
         const body = await res.json() as { messages: Message[] };
         expect(body.messages).toEqual([
@@ -305,11 +412,11 @@ describe("http api", () => {
             { type: "done", ok: true, result: "ok" },
         ];
 
-        const streamRes = await fetch(`${base}/api/sessions/${session.id}/events`);
+        const streamRes = await fetch(`${base}/api/sessions/${session.id}/events?token=${encodeURIComponent(token)}`);
         expect(streamRes.status).toBe(200);
         expect(streamRes.headers.get("content-type")).toContain("text/event-stream");
 
-        const post = fetch(`${base}/api/sessions/${session.id}/messages`, {
+        const post = api(`/api/sessions/${session.id}/messages`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message: "ping" }),
@@ -334,7 +441,7 @@ describe("http api", () => {
     });
 
     test("SSE 404s when the session does not exist", async () => {
-        const res = await fetch(`${base}/api/sessions/${SID_MISSING}/events`);
+        const res = await api(`/api/sessions/${SID_MISSING}/events`);
         expect(res.status).toBe(404);
         expect(await res.json()).toEqual({ error: "session not found" });
     });
