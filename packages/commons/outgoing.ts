@@ -1,4 +1,5 @@
 import z from "zod";
+import { PROVIDER_IDS } from "./providers";
 
 export const WorkspaceCreatedSchema = z.object({
     id: z.string(),
@@ -10,6 +11,7 @@ export type WorkspaceCreatedSchemaType = z.infer<typeof WorkspaceCreatedSchema>;
 export const SessionsCreatedSchema = z.object({
     id: z.string(),
     workspaceId: z.string(),
+    provider: z.enum(PROVIDER_IDS),
 });
 export type SessionCreatedSchemaType = z.infer<typeof SessionsCreatedSchema>;
 

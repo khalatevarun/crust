@@ -12,7 +12,13 @@ export const Session = new mongoose.Schema({
     },
     conversation: [Object],
     workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace' },
-    anthropicSessionId: String
+    provider: {
+        type: String,
+        enum: ["claude", "codex", "opencode", "cursor", "gemini"],
+        required: true,
+        default: "claude",
+    },
+    providerSessionId: String,
 })
 
 export const WorkspaceModel = model("Workspace", Workspace);

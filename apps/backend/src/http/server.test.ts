@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { Message, WorkspaceSummary } from "commons";
-import type { AgentEvent, AgentRunOptions } from "../agent/AgentRunner";
+import type { Message, ProviderId, WorkspaceSummary } from "commons";
+import type { AgentEvent, Provider } from "../providers/Provider";
 import type { ToolCall, SessionRecord, WorkspaceRecord } from "../repository/ChatRepository";
 import { SessionHub } from "./SessionHub";
 import { createServer } from "./server";
@@ -12,7 +12,13 @@ const SID_MISSING = "dddddddddddddddddddddddd";
 
 class MemoryRepo {
     workspaces = new Map<string, { id: string; name: string; path: string }>();
-    sessions = new Map<string, { id: string; workspaceId: string; messages: Message[]; anthropicSessionId?: string }>();
+    sessions = new Map<string, {
+        id: string;
+        workspaceId: string;
+        provider: ProviderId;
+        messages: Message[];
+        providerSessionId?: string;
+    }>();
     nextWorkspace = 0;
     nextSession = 0;
 
@@ -25,12 +31,12 @@ class MemoryRepo {
         return workspace;
     }
 
-    async createSession(workspaceId: string) {
+    async createSession(workspaceId: string, provider: ProviderId) {
         if (!this.workspaces.has(workspaceId)) return null;
         const id = this.nextSession === 0 ? SID_A : idFromCounter(this.nextSession, "c");
         this.nextSession += 1;
-        this.sessions.set(id, { id, workspaceId, messages: [] });
-        return { id, workspaceId };
+        this.sessions.set(id, { id, workspaceId, provider, messages: [] });
+        return { id, workspaceId, provider };
     }
 
     async appendUserMessage(sessionId: string, message: string) {
@@ -51,9 +57,9 @@ class MemoryRepo {
         });
     }
 
-    async setAnthropicSessionId(sessionId: string, anthropicSessionId: string) {
+    async setProviderSessionId(sessionId: string, providerSessionId: string) {
         const session = this.sessions.get(sessionId);
-        if (session) session.anthropicSessionId = anthropicSessionId;
+        if (session) session.providerSessionId = providerSessionId;
     }
 
     async getSessionWithWorkspace(
@@ -64,7 +70,11 @@ class MemoryRepo {
         const workspace = this.workspaces.get(session.workspaceId);
         if (!workspace) return null;
         return {
-            session: { id: session.id, anthropicSessionId: session.anthropicSessionId },
+            session: {
+                id: session.id,
+                provider: session.provider,
+                providerSessionId: session.providerSessionId,
+            },
             workspace: { id: workspace.id, path: workspace.path },
         };
     }
@@ -89,10 +99,19 @@ function idFromCounter(n: number, fill: string): string {
     return fill.repeat(24).slice(0, 23) + String(n);
 }
 
-class FakeAgent {
+class FakeProvider implements Provider {
     events: AgentEvent[] = [];
 
-    async *run(_options: AgentRunOptions): AsyncGenerator<AgentEvent> {
+    constructor(
+        readonly id: ProviderId,
+        private configured: boolean,
+    ) {}
+
+    isConfigured(): boolean {
+        return this.configured;
+    }
+
+    async *run(): AsyncGenerator<AgentEvent> {
         for (const event of this.events) {
             yield event;
         }
@@ -101,7 +120,7 @@ class FakeAgent {
 
 describe("http api", () => {
     const repo = new MemoryRepo();
-    const agent = new FakeAgent();
+    const claude = new FakeProvider("claude", true);
     const hub = new SessionHub();
     let server: ReturnType<typeof createServer>;
     let base: string;
@@ -109,7 +128,13 @@ describe("http api", () => {
     beforeAll(() => {
         server = createServer({
             repo: repo as never,
-            agent: agent as never,
+            providers: {
+                claude,
+                codex: new FakeProvider("codex", false),
+                opencode: new FakeProvider("opencode", false),
+                cursor: new FakeProvider("cursor", false),
+                gemini: new FakeProvider("gemini", false),
+            },
             hub,
             port: 0,
             hostname: "127.0.0.1",
@@ -156,27 +181,49 @@ describe("http api", () => {
         const bad = await fetch(`${base}/api/workspaces/not-an-id/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ provider: "claude" }),
         });
         expect(bad.status).toBe(400);
 
         const missing = await fetch(`${base}/api/workspaces/${WID_MISSING}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ provider: "claude" }),
         });
         expect(missing.status).toBe(404);
         expect(await missing.json()).toEqual({ error: "workspace not found" });
+    });
+
+    test("POST session rejects a missing provider and an unconfigured provider", async () => {
+        const missing = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+        });
+        expect(missing.status).toBe(400);
+
+        const unconfigured = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: "codex" }),
+        });
+        expect(unconfigured.status).toBe(400);
+        expect(await unconfigured.json()).toEqual({
+            error: "codex is not configured: missing OPENAI_API_KEY",
+        });
+        expect(await repo.getSnapshotSummary()).toEqual([
+            { id: WID_A, name: "demo", path: "/tmp/demo", sessions: [] },
+        ]);
     });
 
     test("POST session creates a session", async () => {
         const res = await fetch(`${base}/api/workspaces/${WID_A}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ provider: "claude" }),
         });
         expect(res.status).toBe(201);
-        expect(await res.json()).toEqual({ id: SID_A, workspaceId: WID_A });
+        expect(await res.json()).toEqual({ id: SID_A, workspaceId: WID_A, provider: "claude" });
     });
 
     test("GET messages 404s for unknown session", async () => {
@@ -186,9 +233,9 @@ describe("http api", () => {
     });
 
     test("POST message returns 202 and persists the user turn without waiting for the agent", async () => {
-        agent.events = [
+        claude.events = [
             { type: "tool-call", id: "t1", name: "Read", input: { path: "x" } },
-            { type: "done", subtype: "success", result: "done", anthropicSessionId: "prov-1" },
+            { type: "done", ok: true, result: "done", providerSessionId: "prov-1" },
         ];
 
         const res = await fetch(`${base}/api/sessions/${SID_A}/messages`, {
@@ -216,11 +263,11 @@ describe("http api", () => {
     });
 
     test("SSE streams tool-call and assistant-message events", async () => {
-        const session = await repo.createSession(WID_A);
+        const session = await repo.createSession(WID_A, "claude");
         if (!session) throw new Error("session");
-        agent.events = [
+        claude.events = [
             { type: "tool-call", name: "Glob", input: { pattern: "*" } },
-            { type: "done", subtype: "success", result: "ok" },
+            { type: "done", ok: true, result: "ok" },
         ];
 
         const streamRes = await fetch(`${base}/api/sessions/${session.id}/events`);

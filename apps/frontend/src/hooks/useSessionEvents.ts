@@ -11,14 +11,15 @@ export function useSessionEvents(sessionId: string | null) {
             return;
         }
 
+        const id = sessionId;
         let cancelled = false;
         let applyLive = false;
-        const source = new EventSource(sessionEventsUrl(sessionId));
+        const source = new EventSource(sessionEventsUrl(id));
 
         async function loadTranscript() {
             applyLive = false;
             try {
-                const data = await getMessages(sessionId);
+                const data = await getMessages(id);
                 if (cancelled) return;
                 setMessages(data.messages);
                 applyLive = true;

@@ -1,5 +1,6 @@
 import { WorkspaceModel, SessionModel } from "db";
-import type { Message, Workspace, WorkspaceSummary } from "commons";
+import { isProviderId, type Message, type ProviderId, type Workspace, type WorkspaceSummary } from "commons";
+
 
 export type ToolCall = {
     id?: string;
@@ -9,7 +10,8 @@ export type ToolCall = {
 
 export type SessionRecord = {
     id: string;
-    anthropicSessionId?: string;
+    provider: ProviderId;
+    providerSessionId?: string;
 };
 
 export type WorkspaceRecord = {
@@ -24,12 +26,12 @@ export class ChatRepository {
         return { id: workspace._id.toString(), name, path };
     }
 
-    async createSession(workspaceId: string) {
+    async createSession(workspaceId: string, provider: ProviderId) {
         const workspace = await WorkspaceModel.findById(workspaceId);
         if (!workspace) return null;
 
-        const session = await SessionModel.create({ workspaceId, conversation: [] });
-        return { id: session._id.toString(), workspaceId };
+        const session = await SessionModel.create({ workspaceId, provider, conversation: [] });
+        return { id: session._id.toString(), workspaceId, provider };
     }
 
     async appendUserMessage(sessionId: string, message: string) {
@@ -53,8 +55,8 @@ export class ChatRepository {
         );
     }
 
-    async setAnthropicSessionId(sessionId: string, anthropicSessionId: string) {
-        await SessionModel.updateOne({ _id: sessionId }, { $set: { anthropicSessionId } });
+    async setProviderSessionId(sessionId: string, providerSessionId: string) {
+        await SessionModel.updateOne({ _id: sessionId }, { $set: { providerSessionId } });
     }
 
     async getSessionWithWorkspace(
@@ -69,7 +71,9 @@ export class ChatRepository {
         return {
             session: {
                 id: session._id.toString(),
-                anthropicSessionId: session.anthropicSessionId ?? undefined,
+                provider: isProviderId(session.provider) ? session.provider : "claude",
+
+                providerSessionId: session.providerSessionId ?? undefined,
             },
             workspace: {
                 id: workspace._id.toString(),

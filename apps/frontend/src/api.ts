@@ -1,4 +1,4 @@
-import type { Message, WorkspaceSummary } from "commons";
+import type { Message, ProviderId, WorkspaceSummary } from "commons";
 
 export const API_BASE = "http://localhost:3001";
 
@@ -28,11 +28,14 @@ export function createWorkspace(path: string): Promise<{ id: string; name: strin
     }).then((res) => parseJson(res));
 }
 
-export function createSession(workspaceId: string): Promise<{ id: string; workspaceId: string }> {
+export function createSession(
+    workspaceId: string,
+    provider: ProviderId,
+): Promise<{ id: string; workspaceId: string; provider: ProviderId }> {
     return fetch(`${API_BASE}/api/workspaces/${workspaceId}/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ provider }),
     }).then((res) => parseJson(res));
 }
 
