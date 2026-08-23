@@ -1,8 +1,6 @@
 import { WebSocketServer } from "ws";
 import mongoose from "mongoose";
-import { WorkspaceModel } from "db";
-import { CreateWorkspaceSchema } from "commons";
-import { UserManager } from "./UserManager";
+import { ConnectionManager } from "./src/ws/ConnectionManager";
 
 
 mongoose.connect(process.env.DB_URL!)
@@ -12,7 +10,7 @@ mongoose.connect(process.env.DB_URL!)
     });
 
     server.on("connection", (ws) => {
-        UserManager.getInstance().addUser(ws);
+        ConnectionManager.getInstance().addConnection(ws);
     })
 })
 .catch((e)=>{
