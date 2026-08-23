@@ -23,3 +23,11 @@ _Avoid_: message (a Turn produces one user message but the response side isn't i
 **Model**:
 The specific model id a Session's Provider runs Turns with (e.g. `claude-opus-5` under the Claude Provider). Chosen once, at Session creation, from that Provider's own catalog of offered models; falls back to that Provider's default when not chosen explicitly. Fixed for the Session's lifetime, same as Provider itself.
 _Avoid_: version, tier.
+
+**Device**:
+A client — the desktop browser, a paired phone — holding a long-lived Token that authorizes every request it makes to the backend. Created once via pairing, valid until explicitly revoked; no automatic expiry.
+_Avoid_: client, user, session (Session already means something else in this glossary).
+
+**Token**:
+The bearer credential a Device presents on every request. Generated once at pairing time, shown to the user exactly once (via QR code), stored on the backend only as a hash. Revoking a Device invalidates its Token immediately.
+_Avoid_: key, secret, credential.
