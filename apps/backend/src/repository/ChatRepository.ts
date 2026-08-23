@@ -1,5 +1,5 @@
 import { WorkspaceModel, SessionModel } from "db";
-import type { Message, Workspace } from "commons";
+import type { Message, Workspace, WorkspaceSummary } from "commons";
 
 export type ToolCall = {
     id?: string;
@@ -25,6 +25,9 @@ export class ChatRepository {
     }
 
     async createSession(workspaceId: string) {
+        const workspace = await WorkspaceModel.findById(workspaceId);
+        if (!workspace) return null;
+
         const session = await SessionModel.create({ workspaceId, conversation: [] });
         return { id: session._id.toString(), workspaceId };
     }
@@ -89,6 +92,25 @@ export class ChatRepository {
                     messages: s.conversation as unknown as Message[],
                 })),
         }));
+    }
+
+    async getSnapshotSummary(): Promise<WorkspaceSummary[]> {
+        const [workspaces, sessions] = await Promise.all([WorkspaceModel.find(), SessionModel.find()]);
+
+        return workspaces.map((w) => ({
+            id: w._id.toString(),
+            name: w.name ?? "",
+            path: w.path ?? "",
+            sessions: sessions
+                .filter((s) => s.workspaceId?.toString() === w._id.toString())
+                .map((s) => ({ id: s._id.toString() })),
+        }));
+    }
+
+    async getMessages(sessionId: string): Promise<Message[] | null> {
+        const session = await SessionModel.findById(sessionId);
+        if (!session) return null;
+        return session.conversation as unknown as Message[];
     }
 }
 

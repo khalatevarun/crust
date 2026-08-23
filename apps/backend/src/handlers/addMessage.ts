@@ -1,47 +1,72 @@
-import { AddMessageSchema, type OutgoingMessageType } from "commons";
+import { AddMessageSchema, type MessageAddedType } from "commons";
 import type { HandlerContext } from "./context";
+import { HttpError, isObjectId, zodErrorMessage } from "../http/HttpError";
 
-export async function handleAddMessage(payload: unknown, ctx: HandlerContext): Promise<OutgoingMessageType> {
-    const { success, data } = AddMessageSchema.safeParse(payload);
-    if (!success) {
-        throw new Error("incorrect schema");
+export async function handleAddMessage(
+    sessionId: string,
+    payload: unknown,
+    ctx: HandlerContext,
+): Promise<MessageAddedType> {
+    if (!isObjectId(sessionId)) {
+        throw new HttpError(400, "invalid sessionId format");
     }
 
-    await ctx.repo.appendUserMessage(data.sessionId, data.message);
+    const parsed = AddMessageSchema.safeParse(payload);
+    if (!parsed.success) {
+        throw new HttpError(400, zodErrorMessage(parsed.error));
+    }
 
-    const found = await ctx.repo.getSessionWithWorkspace(data.sessionId);
+    const found = await ctx.repo.getSessionWithWorkspace(sessionId);
     if (!found) {
-        throw new Error("session does not exist " + data.sessionId);
+        throw new HttpError(404, "session not found");
     }
-    const { session, workspace } = found;
+
+    await ctx.repo.appendUserMessage(sessionId, parsed.data.message);
+
+    void runTurn({
+        sessionId,
+        message: parsed.data.message,
+        session: found.session,
+        workspace: found.workspace,
+        ctx,
+    }).catch((err) => {
+        console.error("agent run failed", err);
+    });
+
+    return { sessionId };
+}
+
+async function runTurn(args: {
+    sessionId: string;
+    message: string;
+    session: { anthropicSessionId?: string };
+    workspace: { path: string };
+    ctx: HandlerContext;
+}): Promise<void> {
+    const { sessionId, message, session, workspace, ctx } = args;
 
     for await (const event of ctx.agent.run({
-        prompt: data.message,
+        prompt: message,
         cwd: workspace.path,
         resume: session.anthropicSessionId,
     })) {
         if (event.type === "tool-call") {
-            ctx.sendMessage({
+            ctx.hub.publish(sessionId, {
                 type: "tool-call",
-                payload: { sessionId: data.sessionId, id: event.id, name: event.name, input: event.input },
+                payload: { sessionId, id: event.id, name: event.name, input: event.input },
             });
-            await ctx.repo.appendToolCall(data.sessionId, { id: event.id, name: event.name, input: event.input });
+            await ctx.repo.appendToolCall(sessionId, { id: event.id, name: event.name, input: event.input });
         } else if (event.type === "done") {
             if (!session.anthropicSessionId && event.anthropicSessionId) {
-                await ctx.repo.setAnthropicSessionId(data.sessionId, event.anthropicSessionId);
+                await ctx.repo.setAnthropicSessionId(sessionId, event.anthropicSessionId);
             }
             if (event.subtype === "success" && event.result) {
-                ctx.sendMessage({
+                ctx.hub.publish(sessionId, {
                     type: "assistant-message",
-                    payload: { sessionId: data.sessionId, type: "text", message: event.result },
+                    payload: { sessionId, type: "text", message: event.result },
                 });
-                await ctx.repo.appendAssistantText(data.sessionId, event.result);
+                await ctx.repo.appendAssistantText(sessionId, event.result);
             }
         }
     }
-
-    return {
-        type: "add-message",
-        payload: { id: data.sessionId },
-    };
 }
