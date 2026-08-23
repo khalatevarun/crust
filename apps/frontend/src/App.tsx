@@ -1,6 +1,7 @@
 import "./index.css";
 import { useContext, useEffect, useState } from "react";
-import type { Message, WorkspaceSummary } from "commons";
+import type { Message, ProviderId, WorkspaceSummary } from "commons";
+import { isProviderId, PROVIDER_IDS } from "commons";
 import { AppContext } from "./context/AppContext";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
@@ -187,6 +188,8 @@ function ChatBubble({ message }: { message: Message }) {
 function Sidebar() {
   const { workspaces, setWorkspaces, activeSessionId, setActiveSessionId } = useContext(AppContext);
   const [path, setPath] = useState("");
+  const [provider, setProvider] = useState<ProviderId>("claude");
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
   async function addWorkspace() {
     if (!path.trim()) return;
@@ -202,15 +205,16 @@ function Sidebar() {
 
   async function addSession(workspaceId: string) {
     if (!workspaceId) return;
+    setSessionError(null);
     try {
-      const session = await createSession(workspaceId);
+      const session = await createSession(workspaceId, provider);
       setWorkspaces((ws) => ws.map((w) =>
         w.id === workspaceId
           ? { ...w, sessions: [...w.sessions, { id: session.id }] }
           : w
       ));
     } catch (err) {
-      console.error("failed to create session", err);
+      setSessionError(err instanceof Error ? err.message : "failed to create session");
     }
   }
 
@@ -220,6 +224,28 @@ function Sidebar() {
         <h1 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Workspaces
         </h1>
+        <label className="mt-2 block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Provider
+          </span>
+          <select
+            value={provider}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (isProviderId(next)) setProvider(next);
+            }}
+            className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+          >
+            {PROVIDER_IDS.map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+          </select>
+        </label>
+        {sessionError && (
+          <p className="mt-2 text-xs text-destructive">{sessionError}</p>
+        )}
       </div>
 
       <div className="flex-1 space-y-1 overflow-y-auto p-2">

@@ -1,17 +1,15 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { ProviderId } from "commons";
+import type { AgentEvent, Provider, ProviderRunOptions } from "./Provider";
 
-export type AgentEvent =
-    | { type: "tool-call"; id?: string; name: string; input?: unknown }
-    | { type: "done"; anthropicSessionId?: string; subtype: string; result?: string };
+export class ClaudeProvider implements Provider {
+    readonly id: ProviderId = "claude";
 
-export type AgentRunOptions = {
-    prompt: string;
-    cwd: string;
-    resume?: string;
-};
+    isConfigured(): boolean {
+        return Boolean(process.env.ANTHROPIC_API_KEY);
+    }
 
-export class AgentRunner {
-    async *run(options: AgentRunOptions): AsyncGenerator<AgentEvent> {
+    async *run(options: ProviderRunOptions): AsyncGenerator<AgentEvent> {
         for await (const message of query({
             prompt: options.prompt,
             options: {
@@ -33,15 +31,17 @@ export class AgentRunner {
                     }
                 }
             } else if (message.type === "result") {
+                const ok = message.subtype === "success";
                 yield {
                     type: "done",
-                    anthropicSessionId: message.session_id,
-                    subtype: message.subtype,
-                    result: message.subtype === "success" ? message.result : undefined,
+                    ok,
+                    providerSessionId: message.session_id,
+                    result: ok ? message.result : undefined,
+                    errorMessage: ok ? undefined : message.subtype,
                 };
             }
         }
     }
 }
 
-export const agentRunner = new AgentRunner();
+export const claudeProvider = new ClaudeProvider();

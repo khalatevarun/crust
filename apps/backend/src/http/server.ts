@@ -1,13 +1,13 @@
-import type { SessionEvent } from "commons";
-import type { AgentRunner } from "../agent/AgentRunner";
+import type { ProviderId, SessionEvent } from "commons";
 import { handleAddMessage, handleCreateSession, handleCreateWorkspace } from "../handlers";
+import type { Provider } from "../providers/Provider";
 import type { ChatRepository } from "../repository/ChatRepository";
 import { corsHeaders, errorResponse, HttpError, isObjectId, json } from "./HttpError";
 import { SessionHub } from "./SessionHub";
 
 export type ServerDeps = {
     repo: ChatRepository;
-    agent: AgentRunner;
+    providers: Record<ProviderId, Provider>;
     hub: SessionHub;
     port?: number;
     hostname?: string;
@@ -35,7 +35,7 @@ function optionsResponse(): Response {
 }
 
 export function createServer(deps: ServerDeps) {
-    const ctx = { repo: deps.repo, agent: deps.agent, hub: deps.hub };
+    const ctx = { repo: deps.repo, providers: deps.providers, hub: deps.hub };
 
     return Bun.serve({
         port: deps.port ?? 3001,

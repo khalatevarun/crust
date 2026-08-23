@@ -1,11 +1,14 @@
 import z from "zod";
+import { PROVIDER_IDS } from "./providers";
 
 export const CreateWorkspaceSchema = z.object({
     path: z.string(),
 });
 export type CreateWorkspaceSchemaType = z.infer<typeof CreateWorkspaceSchema>;
 
-export const CreateSessionSchema = z.object({});
+export const CreateSessionSchema = z.object({
+    provider: z.enum(PROVIDER_IDS),
+});
 export type CreateSessionSchemaType = z.infer<typeof CreateSessionSchema>;
 
 export const AddMessageSchema = z.object({
