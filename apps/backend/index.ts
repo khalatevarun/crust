@@ -1,22 +1,18 @@
 import { WebSocketServer } from "ws";
 import mongoose from "mongoose";
 import { WorkspaceModel } from "db";
+import { CreateWorkspaceSchema } from "commons";
+import { UserManager } from "./UserManager";
 
 
 mongoose.connect(process.env.DB_URL!)
 .then(()=>{
     const server = new WebSocketServer({
-        port: 3000
+        port: 3001
     });
 
     server.on("connection", (ws) => {
-        ws.on("message", (msg) => {
-            console.log(msg);
-            WorkspaceModel.create({
-                "path":"/my/computer",
-                "name": "beginning"
-            })
-        })
+        UserManager.getInstance().addUser(ws);
     })
 })
 .catch((e)=>{
