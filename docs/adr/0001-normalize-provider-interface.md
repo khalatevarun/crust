@@ -1,0 +1,5 @@
+# Normalize the Provider interface instead of exposing each vendor's native shape
+
+We're adding four more agent SDKs (Codex, opencode, Cursor, Gemini) alongside Claude. Every Provider satisfies one shared interface: `run()` yields `tool-call` events plus a single normalized `done` event (`ok: boolean`, `result?`, `providerSessionId?`), instead of passing each vendor's own status/tool vocabulary through to callers. Tool-permission defaults (which tools auto-approve, whether edits auto-accept) stay hardcoded inside each adapter rather than becoming a cross-provider config surface, since nothing today needs that configurable. Provider is chosen once at Session creation and fixed for that Session's life, since resume identifiers are vendor-specific and don't carry across providers.
+
+Considered exposing each vendor's native event/status shape directly and letting callers branch on provider — rejected because every downstream consumer (persistence, the frontend) would need to understand N vendor vocabularies instead of one, defeating the point of having a Provider seam at all.
