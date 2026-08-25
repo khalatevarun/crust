@@ -21,6 +21,10 @@ function storeToken(token: string) {
     localStorage.setItem(TOKEN_KEY, token);
 }
 
+function clearToken() {
+    localStorage.removeItem(TOKEN_KEY);
+}
+
 function authHeaders(): HeadersInit {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     const token = getStoredToken();
@@ -43,15 +47,31 @@ async function parseJson<T>(res: Response): Promise<T> {
     return res.json() as Promise<T>;
 }
 
-export async function ensureDesktopToken(): Promise<void> {
-    if (getStoredToken()) return;
+async function pairDesktopBrowser(): Promise<void> {
     const res = await fetch(`${API_BASE}/api/devices/pair`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "Desktop browser" }),
     });
+    if (res.status === 401) {
+        throw new Error(
+            "This browser isn't paired, and another device already owns the backend. Pair from a connected device, or reset the devices collection if you're starting over locally.",
+        );
+    }
     const data = await parseJson<{ token: string }>(res);
     storeToken(data.token);
+}
+
+export async function ensureDesktopToken(): Promise<void> {
+    if (getStoredToken()) {
+        const res = await fetch(`${API_BASE}/api/devices`, { headers: authHeaders() });
+        if (res.ok) return;
+        if (res.status !== 401) {
+            await parseJson(res);
+        }
+        clearToken();
+    }
+    await pairDesktopBrowser();
 }
 
 export function getSnapshot(): Promise<{ workspaces: WorkspaceSummary[] }> {
@@ -63,6 +83,13 @@ export function createWorkspace(path: string): Promise<{ id: string; name: strin
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ path }),
+    }).then((res) => parseJson(res));
+}
+
+export function deleteWorkspace(workspaceId: string): Promise<void> {
+    return fetch(`${API_BASE}/api/workspaces/${workspaceId}`, {
+        method: "DELETE",
+        headers: authHeaders(),
     }).then((res) => parseJson(res));
 }
 

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Message, ProviderId, WorkspaceSummary } from "commons";
-import type { AgentEvent, Provider } from "../providers/Provider";
+import type { AgentEvent, Provider, ProviderRunOptions } from "../providers/Provider";
 import type { ToolCall, SessionRecord, WorkspaceRecord } from "../repository/ChatRepository";
 import { SessionHub } from "./SessionHub";
 import { createServer } from "./server";
@@ -95,6 +95,19 @@ class MemoryRepo {
         if (!session) return null;
         return session.messages;
     }
+
+    async deleteWorkspace(workspaceId: string): Promise<string[] | null> {
+        if (!this.workspaces.has(workspaceId)) return null;
+        const sessionIds: string[] = [];
+        for (const [id, session] of this.sessions) {
+            if (session.workspaceId === workspaceId) {
+                sessionIds.push(id);
+                this.sessions.delete(id);
+            }
+        }
+        this.workspaces.delete(workspaceId);
+        return sessionIds;
+    }
 }
 
 function idFromCounter(n: number, fill: string): string {
@@ -103,6 +116,7 @@ function idFromCounter(n: number, fill: string): string {
 
 class FakeProvider implements Provider {
     events: AgentEvent[] = [];
+    runs: ProviderRunOptions[] = [];
 
     constructor(
         readonly id: ProviderId,
@@ -113,7 +127,12 @@ class FakeProvider implements Provider {
         return this.configured;
     }
 
-    async *run(): AsyncGenerator<AgentEvent> {
+    setupHint(): string {
+        return `${this.id} is not configured`;
+    }
+
+    async *run(options: ProviderRunOptions): AsyncGenerator<AgentEvent> {
+        this.runs.push(options);
         for (const event of this.events) {
             yield event;
         }
@@ -286,6 +305,23 @@ describe("http api", () => {
         });
     });
 
+    test("DELETE /api/workspaces removes the workspace from the snapshot", async () => {
+        const extra = await repo.createWorkspace("/tmp/extra");
+
+        const missing = await api(`/api/workspaces/${WID_MISSING}`, { method: "DELETE" });
+        expect(missing.status).toBe(404);
+
+        const bad = await api(`/api/workspaces/not-an-id`, { method: "DELETE" });
+        expect(bad.status).toBe(400);
+
+        const res = await api(`/api/workspaces/${extra.id}`, { method: "DELETE" });
+        expect(res.status).toBe(204);
+
+        const snapshot = await api(`/api/snapshot`);
+        const body = await snapshot.json() as { workspaces: { id: string }[] };
+        expect(body.workspaces.map((w) => w.id)).toEqual([WID_A]);
+    });
+
     test("POST session returns 400 for bad id format and 404 when missing", async () => {
         const bad = await api(`/api/workspaces/not-an-id/sessions`, {
             method: "POST",
@@ -318,7 +354,7 @@ describe("http api", () => {
         });
         expect(unconfigured.status).toBe(400);
         expect(await unconfigured.json()).toEqual({
-            error: "codex is not configured: missing OPENAI_API_KEY",
+            error: "codex is not configured",
         });
         expect(await repo.getSnapshotSummary()).toEqual([
             { id: WID_A, name: "demo", path: "/tmp/demo", sessions: [] },
@@ -404,6 +440,35 @@ describe("http api", () => {
         ]);
     });
 
+    test("a follow-up POST message passes the persisted provider session id as resume", async () => {
+        if (!repo.workspaces.has(WID_A)) {
+            await repo.createWorkspace("/tmp/demo");
+        }
+        const session = await repo.createSession(WID_A, "claude", "claude-sonnet-5");
+        if (!session) throw new Error("session");
+        claude.runs = [];
+        claude.events = [{ type: "done", ok: true, result: "first", providerSessionId: "prov-1" }];
+
+        const first = await api(`/api/sessions/${session.id}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: "hello" }),
+        });
+        expect(first.status).toBe(202);
+        await Bun.sleep(40);
+        expect(claude.runs[0]?.resume).toBeUndefined();
+
+        claude.events = [{ type: "done", ok: true, result: "second", providerSessionId: "prov-1" }];
+        const second = await api(`/api/sessions/${session.id}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: "follow up" }),
+        });
+        expect(second.status).toBe(202);
+        await Bun.sleep(40);
+        expect(claude.runs[1]?.resume).toBe("prov-1");
+    });
+
     test("SSE streams tool-call and assistant-message events", async () => {
         const session = await repo.createSession(WID_A, "claude", "claude-sonnet-5");
         if (!session) throw new Error("session");
@@ -444,5 +509,21 @@ describe("http api", () => {
         const res = await api(`/api/sessions/${SID_MISSING}/events`);
         expect(res.status).toBe(404);
         expect(await res.json()).toEqual({ error: "session not found" });
+    });
+
+    test("DELETE /api/workspaces also deletes that workspace's sessions", async () => {
+        const extra = await repo.createWorkspace("/tmp/cascade");
+        const session = await repo.createSession(extra.id, "claude", "claude-sonnet-5");
+        if (!session) throw new Error("session");
+
+        const res = await api(`/api/workspaces/${extra.id}`, { method: "DELETE" });
+        expect(res.status).toBe(204);
+
+        const messages = await api(`/api/sessions/${session.id}/messages`);
+        expect(messages.status).toBe(404);
+
+        const snapshot = await api(`/api/snapshot`);
+        const body = await snapshot.json() as { workspaces: { id: string }[] };
+        expect(body.workspaces.some((w) => w.id === extra.id)).toBe(false);
     });
 });

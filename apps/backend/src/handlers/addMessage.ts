@@ -1,7 +1,6 @@
 import { AddMessageSchema, type MessageAddedType } from "commons";
 import type { HandlerContext } from "./context";
 import { HttpError, isObjectId, zodErrorMessage } from "../http/HttpError";
-import type { SessionRecord, WorkspaceRecord } from "../repository/ChatRepository";
 
 export async function handleAddMessage(
     sessionId: string,
@@ -27,8 +26,6 @@ export async function handleAddMessage(
     void runTurn({
         sessionId,
         message: parsed.data.message,
-        session: found.session,
-        workspace: found.workspace,
         ctx,
     }).catch((err) => {
         console.error("agent run failed", err);
@@ -40,18 +37,20 @@ export async function handleAddMessage(
 async function runTurn(args: {
     sessionId: string;
     message: string;
-    session: SessionRecord;
-    workspace: WorkspaceRecord;
     ctx: HandlerContext;
 }): Promise<void> {
-    const { sessionId, message, session, workspace, ctx } = args;
-    const provider = ctx.providers[session.provider];
+    const { sessionId, message, ctx } = args;
+    const found = await ctx.repo.getSessionWithWorkspace(sessionId);
+    if (!found) return;
+
+    const provider = ctx.providers[found.session.provider];
+    console.log("[agent] run", sessionId, found.session.provider, found.session.model);
 
     for await (const event of provider.run({
         prompt: message,
-        cwd: workspace.path,
-        resume: session.providerSessionId,
-        model: session.model,
+        cwd: found.workspace.path,
+        resume: found.session.providerSessionId,
+        model: found.session.model,
     })) {
         if (event.type === "tool-call") {
             ctx.hub.publish(sessionId, {
@@ -60,15 +59,18 @@ async function runTurn(args: {
             });
             await ctx.repo.appendToolCall(sessionId, { id: event.id, name: event.name, input: event.input });
         } else if (event.type === "done") {
-            if (!session.providerSessionId && event.providerSessionId) {
+            if (event.providerSessionId) {
                 await ctx.repo.setProviderSessionId(sessionId, event.providerSessionId);
             }
-            if (event.ok && event.result) {
+            const text = event.ok ? event.result : event.errorMessage;
+            if (text) {
                 ctx.hub.publish(sessionId, {
                     type: "assistant-message",
-                    payload: { sessionId, type: "text", message: event.result },
+                    payload: { sessionId, type: "text", message: text },
                 });
-                await ctx.repo.appendAssistantText(sessionId, event.result);
+                await ctx.repo.appendAssistantText(sessionId, text);
+            } else if (!event.ok) {
+                console.error("agent run finished without text", sessionId, event.errorMessage);
             }
         }
     }

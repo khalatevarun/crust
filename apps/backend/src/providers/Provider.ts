@@ -14,5 +14,6 @@ export type ProviderRunOptions = {
 export interface Provider {
     readonly id: ProviderId;
     isConfigured(): boolean;
+    setupHint(): string;
     run(options: ProviderRunOptions): AsyncGenerator<AgentEvent>;
 }

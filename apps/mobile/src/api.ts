@@ -27,6 +27,7 @@ async function parseJson<T>(res: Response): Promise<T> {
         }
         throw new Error(message);
     }
+    if (res.status === 204) return undefined as T;
     return res.json() as Promise<T>;
 }
 
@@ -51,6 +52,15 @@ export async function createWorkspace(path: string): Promise<{ id: string; name:
         body: JSON.stringify({ path }),
     });
     return parseJson(res);
+}
+
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+    const { backendUrl, token } = await authContext();
+    const res = await fetch(`${backendUrl}/api/workspaces/${workspaceId}`, {
+        method: "DELETE",
+        headers: headers(token),
+    });
+    await parseJson(res);
 }
 
 export async function createSession(

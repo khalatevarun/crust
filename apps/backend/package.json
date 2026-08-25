@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "bun --hot index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "login:cursor": "bun scripts/login-cursor.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

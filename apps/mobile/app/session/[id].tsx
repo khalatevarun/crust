@@ -103,7 +103,12 @@ function MessageBubble({ message }: { message: Message }) {
     if (message.role === "assistant" && message.payload.type === "tool-call") {
         return (
             <View style={styles.tool}>
-                <Text style={styles.muted}>tool {message.payload.name}</Text>
+                <Text style={styles.muted}>
+                    tool {message.payload.name}
+                    {message.payload.input !== undefined
+                        ? ` ${typeof message.payload.input === "string" ? message.payload.input : JSON.stringify(message.payload.input)}`
+                        : ""}
+                </Text>
             </View>
         );
     }

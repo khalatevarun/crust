@@ -1,22 +1,57 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { GoogleGenAI } from "@google/genai";
 import type { ProviderId } from "commons";
+import { envHasAny, readEnvFile, readJsonRecord } from "./localAuth";
 import type { AgentEvent, Provider, ProviderRunOptions } from "./Provider";
 
-// @google/gemini-cli-sdk is unpublished. @google/genai chat has no filesystem tools.
+function geminiApiKey(
+    env: NodeJS.Dict<string>,
+    home: string,
+): string | undefined {
+    if (env.GEMINI_API_KEY) return env.GEMINI_API_KEY;
+    if (env.GOOGLE_API_KEY) return env.GOOGLE_API_KEY;
+    const fromFile = readEnvFile(join(home, ".gemini/.env"));
+    return fromFile.GEMINI_API_KEY ?? fromFile.GOOGLE_API_KEY;
+}
+
+export function geminiIsConfigured(
+    env: NodeJS.Dict<string> = process.env,
+    home: string = homedir(),
+): boolean {
+    if (envHasAny(env, ["GEMINI_API_KEY", "GOOGLE_API_KEY"])) return true;
+    if (env.GOOGLE_APPLICATION_CREDENTIALS && existsSync(env.GOOGLE_APPLICATION_CREDENTIALS)) {
+        return true;
+    }
+    if (geminiApiKey(env, home)) return true;
+    if (readJsonRecord(join(home, ".gemini/oauth_creds.json"))) return true;
+    const accounts = readJsonRecord(join(home, ".gemini/google_accounts.json"));
+    return typeof accounts?.active === "string" && accounts.active.length > 0;
+}
+
 export class GeminiProvider implements Provider {
     readonly id: ProviderId = "gemini";
 
     isConfigured(): boolean {
-        return Boolean(process.env.GEMINI_API_KEY);
+        return geminiIsConfigured();
+    }
+
+    setupHint(): string {
+        return "gemini is not configured. Run `gemini` in a terminal and choose Login with Google, or set GEMINI_API_KEY in apps/backend/.env and restart the backend.";
     }
 
     async *run(options: ProviderRunOptions): AsyncGenerator<AgentEvent> {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            yield { type: "done", ok: false, errorMessage: "missing GEMINI_API_KEY" };
-            return;
-        }
-        const ai = new GoogleGenAI({ apiKey });
+        const apiKey = geminiApiKey(process.env, homedir());
+        const ai = apiKey
+            ? new GoogleGenAI({ apiKey })
+            : process.env.GOOGLE_GENAI_USE_VERTEXAI === "true"
+                ? new GoogleGenAI({
+                    vertexai: true,
+                    project: process.env.GOOGLE_CLOUD_PROJECT,
+                    location: process.env.GOOGLE_CLOUD_LOCATION,
+                })
+                : new GoogleGenAI({});
         const chat = ai.chats.create({
             model: options.model,
             config: {
