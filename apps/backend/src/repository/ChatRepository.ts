@@ -119,6 +119,17 @@ export class ChatRepository {
         if (!session) return null;
         return session.conversation as unknown as Message[];
     }
+
+    async deleteWorkspace(workspaceId: string): Promise<string[] | null> {
+        const workspace = await WorkspaceModel.findById(workspaceId);
+        if (!workspace) return null;
+
+        const sessions = await SessionModel.find({ workspaceId }).select("_id");
+        const sessionIds = sessions.map((session) => session._id.toString());
+        await SessionModel.deleteMany({ workspaceId });
+        await WorkspaceModel.deleteOne({ _id: workspaceId });
+        return sessionIds;
+    }
 }
 
 export const chatRepository = new ChatRepository();

@@ -1,7 +1,6 @@
 import { CreateSessionSchema, DEFAULT_MODEL_ID, PROVIDER_MODELS, type SessionCreatedSchemaType } from "commons";
 import type { HandlerContext } from "./context";
 import { HttpError, isObjectId, zodErrorMessage } from "../http/HttpError";
-import { PROVIDER_CREDENTIAL } from "../providers/registry";
 
 export async function handleCreateSession(
     workspaceId: string,
@@ -20,10 +19,7 @@ export async function handleCreateSession(
     const providerId = parsed.data.provider;
     const provider = ctx.providers[providerId];
     if (!provider.isConfigured()) {
-        throw new HttpError(
-            400,
-            `${providerId} is not configured: missing ${PROVIDER_CREDENTIAL[providerId]}`,
-        );
+        throw new HttpError(400, provider.setupHint());
     }
 
     const catalog = PROVIDER_MODELS[providerId];

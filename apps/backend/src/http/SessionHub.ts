@@ -27,6 +27,10 @@ export class SessionHub {
             subscriber(event);
         }
     }
+
+    drop(sessionId: string): void {
+        this.subscribers.delete(sessionId);
+    }
 }
 
 export const sessionHub = new SessionHub();

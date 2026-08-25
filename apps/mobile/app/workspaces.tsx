@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Link, useFocusEffect } from "expo-router";
 import type { WorkspaceSummary } from "commons";
-import { createWorkspace, getSnapshot } from "../src/api";
+import { createWorkspace, deleteWorkspace, getSnapshot } from "../src/api";
 
 export default function WorkspacesScreen() {
     const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
@@ -21,6 +21,16 @@ export default function WorkspacesScreen() {
         }, [load]),
     );
 
+    async function remove(id: string) {
+        setError(null);
+        try {
+            await deleteWorkspace(id);
+            load();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "failed to delete workspace");
+            load();
+        }
+    }
     async function add() {
         const next = path.trim();
         if (!next) return;
@@ -39,13 +49,18 @@ export default function WorkspacesScreen() {
             <Text style={styles.title}>Workspaces</Text>
             {error && <Text style={styles.error}>{error}</Text>}
             {workspaces.map((workspace) => (
-                <Link key={workspace.id} href={`/workspace/${workspace.id}`} asChild>
-                    <Pressable style={styles.card}>
-                        <Text style={styles.cardTitle}>{workspace.name || workspace.path}</Text>
-                        <Text style={styles.muted}>{workspace.path}</Text>
-                        <Text style={styles.muted}>{workspace.sessions.length} sessions</Text>
+                <View key={workspace.id} style={styles.card}>
+                    <Link href={`/workspace/${workspace.id}`} asChild>
+                        <Pressable>
+                            <Text style={styles.cardTitle}>{workspace.name || workspace.path}</Text>
+                            <Text style={styles.muted}>{workspace.path}</Text>
+                            <Text style={styles.muted}>{workspace.sessions.length} sessions</Text>
+                        </Pressable>
+                    </Link>
+                    <Pressable onPress={() => void remove(workspace.id)}>
+                        <Text style={styles.delete}>Delete</Text>
                     </Pressable>
-                </Link>
+                </View>
             ))}
             <TextInput
                 style={styles.input}
@@ -67,9 +82,10 @@ const styles = StyleSheet.create({
     content: { padding: 16, gap: 12 },
     title: { color: "#f5f5f5", fontSize: 20, fontWeight: "600" },
     error: { color: "#f87171", fontSize: 13 },
-    card: { borderColor: "#333", borderWidth: 1, borderRadius: 8, padding: 12, gap: 4 },
+    card: { borderColor: "#333", borderWidth: 1, borderRadius: 8, padding: 12, gap: 8 },
     cardTitle: { color: "#f5f5f5", fontSize: 16 },
     muted: { color: "#9ca3af", fontSize: 12 },
+    delete: { color: "#f87171", fontSize: 13 },
     input: { borderColor: "#333", borderWidth: 1, borderRadius: 8, color: "#f5f5f5", padding: 10 },
     button: { backgroundColor: "#f5f5f5", borderRadius: 8, padding: 12, alignItems: "center" },
     buttonText: { color: "#111", fontWeight: "600" },

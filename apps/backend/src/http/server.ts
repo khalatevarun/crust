@@ -1,5 +1,5 @@
 import type { ProviderId, SessionEvent } from "commons";
-import { handleAddMessage, handleCreateSession, handleCreateWorkspace } from "../handlers";
+import { handleAddMessage, handleCreateSession, handleCreateWorkspace, handleDeleteWorkspace } from "../handlers";
 import { handleDeleteDevice, handleListDevices, handlePairDevice } from "../handlers/devices";
 import { authenticateRequest } from "./auth";
 import type { Provider } from "../providers/Provider";
@@ -105,15 +105,30 @@ export function createServer(deps: ServerDeps) {
                     }
                 },
             },
+            "/api/workspaces/:workspaceId": {
+                OPTIONS: optionsResponse,
+                DELETE: async (req) => {
+                    try {
+                        await requireAuth(req);
+                        await handleDeleteWorkspace(req.params.workspaceId, ctx);
+                        return empty(204);
+                    } catch (err) {
+                        return errorResponse(err);
+                    }
+                },
+            },
             "/api/workspaces/:workspaceId/sessions": {
                 OPTIONS: optionsResponse,
                 POST: async (req) => {
                     try {
                         await requireAuth(req);
                         const body = await readJson(req);
+                        console.log("[http] POST session", req.params.workspaceId, body);
                         const session = await handleCreateSession(req.params.workspaceId, body, ctx);
+                        console.log("[http] POST session 201", session.id, session.provider, session.model);
                         return json(session, 201);
                     } catch (err) {
+                        console.error("[http] POST session failed", err instanceof Error ? err.message : err);
                         return errorResponse(err);
                     }
                 },
@@ -140,9 +155,11 @@ export function createServer(deps: ServerDeps) {
                     try {
                         await requireAuth(req);
                         const body = await readJson(req);
+                        console.log("[http] POST message", req.params.sessionId);
                         const result = await handleAddMessage(req.params.sessionId, body, ctx);
                         return json(result, 202);
                     } catch (err) {
+                        console.error("[http] POST message failed", err instanceof Error ? err.message : err);
                         return errorResponse(err);
                     }
                 },
