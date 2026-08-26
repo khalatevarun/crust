@@ -5,7 +5,7 @@ import { authenticateRequest } from "./auth";
 import type { Provider } from "../providers/Provider";
 import type { ChatRepository } from "../repository/ChatRepository";
 import type { DeviceRepository } from "../repository/DeviceRepository";
-import { advertisedBackendUrl } from "./advertisedUrl";
+import { resolveAdvertisedOrigin, type AdvertisedOrigin } from "./advertisedUrl";
 import { corsHeaders, errorResponse, HttpError, isObjectId, json } from "./HttpError";
 import { SessionHub } from "./SessionHub";
 
@@ -16,6 +16,7 @@ export type ServerDeps = {
     devices: DeviceRepository;
     port?: number;
     hostname?: string;
+    resolveOrigin?: (args: { port: number }) => Promise<AdvertisedOrigin>;
 };
 
 async function readJson(req: Request): Promise<unknown> {
@@ -60,9 +61,12 @@ export function createServer(deps: ServerDeps) {
                     try {
                         const body = await readJson(req);
                         const device = await handlePairDevice(req, body, deps.devices);
+                        const port = deps.port ?? 3001;
+                        const origin = await (deps.resolveOrigin ?? resolveAdvertisedOrigin)({ port });
                         return json({
                             ...device,
-                            backendUrl: advertisedBackendUrl({ port: deps.port ?? 3001 }),
+                            backendUrl: origin.url,
+                            originKind: origin.kind,
                         }, 201);
                     } catch (err) {
                         return errorResponse(err);

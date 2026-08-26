@@ -1,14 +1,28 @@
 import { networkInterfaces } from "node:os";
+import { probeServeOrigin } from "./serveOrigin";
 
-export function advertisedBackendUrl(args: {
+export type OriginKind = "env" | "tailscale-serve" | "lan" | "loopback";
+
+export type AdvertisedOrigin = {
+    kind: OriginKind;
+    url: string;
+};
+
+export async function resolveAdvertisedOrigin(args: {
     port: number;
     env?: NodeJS.Dict<string>;
-}): string {
+    probeServe?: () => Promise<string | undefined>;
+}): Promise<AdvertisedOrigin> {
     const fromEnv = (args.env ?? process.env).CRUST_BACKEND_URL;
-    if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/$/, "");
+    if (fromEnv && fromEnv.length > 0) {
+        return { kind: "env", url: fromEnv.replace(/\/$/, "") };
+    }
+    const probe = args.probeServe ?? (() => probeServeOrigin({ backendPort: args.port }));
+    const serve = await probe();
+    if (serve) return { kind: "tailscale-serve", url: serve };
     const ip = firstLanIpv4();
-    if (ip) return `http://${ip}:${args.port}`;
-    return `http://localhost:${args.port}`;
+    if (ip) return { kind: "lan", url: `http://${ip}:${args.port}` };
+    return { kind: "loopback", url: `http://localhost:${args.port}` };
 }
 
 function firstLanIpv4(): string | undefined {
