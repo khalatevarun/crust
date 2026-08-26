@@ -1,8 +1,8 @@
 import type { Message, ProviderId, WorkspaceSummary } from "commons";
 
 export const API_BASE = "http://localhost:3001";
-export const BACKEND_PUBLIC_URL =
-    (typeof process !== "undefined" && process.env.CRUST_BACKEND_URL) || API_BASE;
+
+export type OriginKind = "env" | "tailscale-serve" | "lan" | "loopback";
 
 const TOKEN_KEY = "crust.deviceToken";
 
@@ -130,7 +130,9 @@ export function listDevices(): Promise<{ devices: DeviceInfo[] }> {
     return fetch(`${API_BASE}/api/devices`, { headers: authHeaders() }).then((res) => parseJson(res));
 }
 
-export function pairDevice(name: string): Promise<DeviceInfo & { token: string; backendUrl: string }> {
+export function pairDevice(
+    name: string,
+): Promise<DeviceInfo & { token: string; backendUrl: string; originKind: OriginKind }> {
     return fetch(`${API_BASE}/api/devices/pair`, {
         method: "POST",
         headers: authHeaders(),

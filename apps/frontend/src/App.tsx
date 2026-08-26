@@ -5,7 +5,7 @@ import { DEFAULT_MODEL_ID, isProviderId, PROVIDER_IDS, PROVIDER_MODELS } from "c
 import { AppContext } from "./context/AppContext";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
-import { addMessage, BACKEND_PUBLIC_URL, createSession, createWorkspace, deleteDevice, deleteWorkspace, ensureDesktopToken, getSnapshot, listDevices, pairDevice, type DeviceInfo } from "./api";
+import { addMessage, createSession, createWorkspace, deleteDevice, deleteWorkspace, ensureDesktopToken, getSnapshot, listDevices, pairDevice, type DeviceInfo } from "./api";
 import QRCode from "qrcode";
 import { useSessionEvents } from "./hooks/useSessionEvents";
 
@@ -467,7 +467,7 @@ function DevicesScreen({ onBack }: { onBack: () => void }) {
     try {
       const device = await pairDevice(nextName);
       setName("");
-      const backendUrl = device.backendUrl || BACKEND_PUBLIC_URL;
+      const backendUrl = device.backendUrl;
       const payload = JSON.stringify({ token: device.token, backendUrl });
       const url = await QRCode.toDataURL(payload, { margin: 1, width: 220 });
       setQrUrl(url);

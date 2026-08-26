@@ -255,10 +255,17 @@ describe("http api", () => {
             body: JSON.stringify({ name: "Phone" }),
         });
         expect(paired.status).toBe(201);
-        const phone = await paired.json() as { id: string; name: string; token: string; backendUrl: string };
+        const phone = await paired.json() as {
+            id: string;
+            name: string;
+            token: string;
+            backendUrl: string;
+            originKind: string;
+        };
         expect(phone.name).toBe("Phone");
         expect(phone.token.length).toBeGreaterThan(10);
         expect(phone.backendUrl.startsWith("http")).toBe(true);
+        expect(["env", "tailscale-serve", "lan", "loopback"]).toContain(phone.originKind);
 
         const listed = await api("/api/devices");
         expect(listed.status).toBe(200);
@@ -526,5 +533,41 @@ describe("http api", () => {
         const snapshot = await api(`/api/snapshot`);
         const body = await snapshot.json() as { workspaces: { id: string }[] };
         expect(body.workspaces.some((w) => w.id === extra.id)).toBe(false);
+    });
+});
+
+describe("pair advertised origin", () => {
+    test("POST /api/devices/pair includes a stub Serve origin", async () => {
+        const server = createServer({
+            repo: new MemoryRepo() as never,
+            devices: new MemoryDevices() as never,
+            providers: {
+                claude: new FakeProvider("claude", true),
+                codex: new FakeProvider("codex", false),
+                opencode: new FakeProvider("opencode", false),
+                cursor: new FakeProvider("cursor", false),
+                gemini: new FakeProvider("gemini", false),
+            },
+            hub: new SessionHub(),
+            port: 0,
+            hostname: "127.0.0.1",
+            resolveOrigin: async () => ({
+                kind: "tailscale-serve",
+                url: "https://node.tailxxxxx.ts.net",
+            }),
+        });
+        try {
+            const res = await fetch(`http://${server.hostname}:${server.port}/api/devices/pair`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: "Desktop browser" }),
+            });
+            expect(res.status).toBe(201);
+            const body = await res.json() as { backendUrl: string; originKind: string };
+            expect(body.backendUrl).toBe("https://node.tailxxxxx.ts.net");
+            expect(body.originKind).toBe("tailscale-serve");
+        } finally {
+            server.stop(true);
+        }
     });
 });
