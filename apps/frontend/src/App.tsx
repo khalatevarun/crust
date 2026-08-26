@@ -5,7 +5,8 @@ import { DEFAULT_MODEL_ID, isProviderId, PROVIDER_IDS, PROVIDER_MODELS } from "c
 import { AppContext } from "./context/AppContext";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
-import { addMessage, createSession, createWorkspace, deleteDevice, deleteWorkspace, ensureDesktopToken, getSnapshot, listDevices, pairDevice, type DeviceInfo } from "./api";
+import { addMessage, createSession, createWorkspace, deleteDevice, deleteWorkspace, ensureDesktopToken, getSnapshot, listDevices, pairDevice, type DeviceInfo, type OriginKind } from "./api";
+import { pairingOriginHint } from "./pairingOrigin";
 import QRCode from "qrcode";
 import { useSessionEvents } from "./hooks/useSessionEvents";
 
@@ -446,6 +447,7 @@ function DevicesScreen({ onBack }: { onBack: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [pairingUrl, setPairingUrl] = useState<string | null>(null);
+  const [pairingKind, setPairingKind] = useState<OriginKind | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -472,6 +474,7 @@ function DevicesScreen({ onBack }: { onBack: () => void }) {
       const url = await QRCode.toDataURL(payload, { margin: 1, width: 220 });
       setQrUrl(url);
       setPairingUrl(backendUrl);
+      setPairingKind(device.originKind);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to pair");
@@ -544,7 +547,12 @@ function DevicesScreen({ onBack }: { onBack: () => void }) {
           <div className="space-y-2">
             <img src={qrUrl} alt="Pairing QR code" className="h-[220px] w-[220px] rounded-md bg-white p-2" />
             {pairingUrl ? (
-              <p className="font-mono text-[11px] text-muted-foreground break-all">{pairingUrl}</p>
+              <>
+                <p className="font-mono text-[11px] text-muted-foreground break-all">{pairingUrl}</p>
+                {pairingKind ? (
+                  <p className="text-[11px] text-muted-foreground">{pairingOriginHint(pairingKind)}</p>
+                ) : null}
+              </>
             ) : null}
           </div>
         )}
