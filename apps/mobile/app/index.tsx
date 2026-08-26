@@ -41,7 +41,15 @@ export default function PairScreen() {
             await savePairing(payload.token, payload.backendUrl);
             router.replace("/workspaces");
         } catch (err) {
-            setError(err instanceof Error ? err.message : "pairing failed");
+            const message = err instanceof Error ? err.message : "pairing failed";
+            const unreachable = message === "Network request failed"
+                || message === "Failed to fetch"
+                || err instanceof TypeError;
+            setError(
+                unreachable
+                    ? `Cannot reach ${payload.backendUrl}. Phone and Mac must be on the same network, and the QR host cannot be localhost.`
+                    : message,
+            );
             setBusy(false);
         }
     }

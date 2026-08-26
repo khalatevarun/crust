@@ -5,6 +5,7 @@ import { authenticateRequest } from "./auth";
 import type { Provider } from "../providers/Provider";
 import type { ChatRepository } from "../repository/ChatRepository";
 import type { DeviceRepository } from "../repository/DeviceRepository";
+import { advertisedBackendUrl } from "./advertisedUrl";
 import { corsHeaders, errorResponse, HttpError, isObjectId, json } from "./HttpError";
 import { SessionHub } from "./SessionHub";
 
@@ -51,7 +52,7 @@ export function createServer(deps: ServerDeps) {
 
     return Bun.serve({
         port: deps.port ?? 3001,
-        hostname: deps.hostname ?? "localhost",
+        hostname: deps.hostname ?? "0.0.0.0",
         routes: {
             "/api/devices/pair": {
                 OPTIONS: optionsResponse,
@@ -59,7 +60,10 @@ export function createServer(deps: ServerDeps) {
                     try {
                         const body = await readJson(req);
                         const device = await handlePairDevice(req, body, deps.devices);
-                        return json(device, 201);
+                        return json({
+                            ...device,
+                            backendUrl: advertisedBackendUrl({ port: deps.port ?? 3001 }),
+                        }, 201);
                     } catch (err) {
                         return errorResponse(err);
                     }

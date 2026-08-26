@@ -130,7 +130,7 @@ export function listDevices(): Promise<{ devices: DeviceInfo[] }> {
     return fetch(`${API_BASE}/api/devices`, { headers: authHeaders() }).then((res) => parseJson(res));
 }
 
-export function pairDevice(name: string): Promise<DeviceInfo & { token: string }> {
+export function pairDevice(name: string): Promise<DeviceInfo & { token: string; backendUrl: string }> {
     return fetch(`${API_BASE}/api/devices/pair`, {
         method: "POST",
         headers: authHeaders(),

@@ -255,9 +255,10 @@ describe("http api", () => {
             body: JSON.stringify({ name: "Phone" }),
         });
         expect(paired.status).toBe(201);
-        const phone = await paired.json() as { id: string; name: string; token: string };
+        const phone = await paired.json() as { id: string; name: string; token: string; backendUrl: string };
         expect(phone.name).toBe("Phone");
         expect(phone.token.length).toBeGreaterThan(10);
+        expect(phone.backendUrl.startsWith("http")).toBe(true);
 
         const listed = await api("/api/devices");
         expect(listed.status).toBe(200);
