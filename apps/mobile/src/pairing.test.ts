@@ -13,5 +13,17 @@ describe("parsePairPayload", () => {
         expect(parsePairPayload("not-json")).toBeNull();
         expect(parsePairPayload(JSON.stringify({ token: "abc" }))).toBeNull();
         expect(parsePairPayload(JSON.stringify({ token: "", backendUrl: "http://x" }))).toBeNull();
+        expect(parsePairPayload(JSON.stringify({ token: "abc", backendUrl: "not a url" }))).toBeNull();
+    });
+
+    test("strips a trailing slash and ignores extra fields", () => {
+        expect(parsePairPayload(JSON.stringify({
+            token: "abc",
+            backendUrl: "https://node.tailxxxxx.ts.net/",
+            originKind: "tailscale-serve",
+        }))).toEqual({
+            token: "abc",
+            backendUrl: "https://node.tailxxxxx.ts.net",
+        });
     });
 });
