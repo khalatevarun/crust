@@ -1,18 +1,29 @@
-# Reach crust from another device
+# Reach crust from a phone away from home
 
-The backend listens on `http://localhost:3001`. Tailscale Serve publishes that port on your tailnet as HTTPS so a phone can call the same API the desktop browser uses.
+Use this when the backend already runs on your laptop and you have paired a phone on Wi-Fi. The phone needs the same Tailscale network as the laptop. This guide does not publish Expo Metro. A cold start of Expo Go off Wi-Fi still cannot load JS from `8081`. See [Expo Go still cannot load Metro off home Wi-Fi](https://github.com/khalatevarun/crust/issues/17).
 
-## Publish the backend
+Why crust reads Serve instead of starting it is in [ADR 0004](adr/0004-detect-tailscale-serve-do-not-start-it.md). Why every request uses a Device Token is in [ADR 0003](adr/0003-tailscale-and-uniform-device-tokens.md).
 
-1. Install Tailscale on the machine that runs the backend and sign in.
-2. Start crust's backend as usual.
-3. Run `tailscale serve 3001`.
-4. Copy the `https://<tailnet-name>.ts.net` URL Tailscale prints.
+## Publish the backend on your tailnet
 
-Set `CRUST_BACKEND_URL` to that URL when you build or start the desktop frontend. The Devices screen embeds it in the pairing QR so the phone does not have to type it.
+1. Install Tailscale on the Mac and sign in. The CLI is `tailscale` on PATH, or `/Applications/Tailscale.app/Contents/MacOS/Tailscale`.
+2. Install Tailscale on the phone, sign in to the same tailnet, and leave the VPN on when you leave the house.
+3. If `tailscale serve` asks you to enable HTTPS certificates, do that in the tailnet admin console.
+4. Start the crust backend so it accepts HTTP on `127.0.0.1:3001`.
+5. Run `tailscale serve --bg 3001`. Use `--bg`. A foreground Serve stops when that terminal closes.
+6. Run `tailscale serve status`. You must see an `https://` host and `proxy http://127.0.0.1:3001`.
+7. On the phone, with Tailscale connected, open `https://<host>/api/snapshot` in Safari. A 401 without a token still means the host is reachable. A timeout does not.
 
-## Pair a device
+If pairing later still shows a LAN IP, set `CRUST_BACKEND_URL` to the `https://` host on the backend process, not the frontend. Then pair again.
 
-Open the desktop app and go to Devices. The first visit bootstraps a desktop token with no existing devices. After that, Pair new device mints a token for the phone and shows a QR of `{ token, backendUrl }`.
+## Pair the phone with that URL
+
+1. Open the desktop app and go to Devices.
+2. Pair a new device.
+3. Confirm the URL under the QR is `https://`, not a `192.168.*` address. If it is a LAN URL, the screen tells you to serve and pair again.
+4. Scan the QR in Expo Go. The phone stores that URL for every later request.
+5. Leave the house. Keep the laptop awake, the backend running, and Serve configured.
+
+If this phone already stored a LAN URL, revoke that device on the Devices screen, then pair again after Serve is up. The phone does not pick up a new URL on its own.
 
 Revoke a row on that screen if you lose the device. Tokens do not expire.

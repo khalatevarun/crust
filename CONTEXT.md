@@ -25,7 +25,7 @@ The specific model id a Session's Provider runs Turns with (e.g. `claude-opus-5`
 _Avoid_: version, tier.
 
 **Device**:
-A client — the desktop browser, a paired phone — holding a long-lived Token that authorizes every request it makes to the backend. Created once via pairing, valid until explicitly revoked; no automatic expiry.
+A client — the desktop browser, a paired phone — holding a long-lived Token that authorizes every request it makes to the backend. Created once via pairing, valid until explicitly revoked; no automatic expiry. The Device stores the backend URL from pairing and does not discover a new one later, so a phone paired with a LAN address keeps calling that address after you publish the backend on a tailnet.
 _Avoid_: client, user, session (Session already means something else in this glossary).
 
 **Token**:
