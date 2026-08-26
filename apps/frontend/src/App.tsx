@@ -445,6 +445,7 @@ function DevicesScreen({ onBack }: { onBack: () => void }) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const [pairingUrl, setPairingUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -466,9 +467,11 @@ function DevicesScreen({ onBack }: { onBack: () => void }) {
     try {
       const device = await pairDevice(nextName);
       setName("");
-      const payload = JSON.stringify({ token: device.token, backendUrl: BACKEND_PUBLIC_URL });
+      const backendUrl = device.backendUrl || BACKEND_PUBLIC_URL;
+      const payload = JSON.stringify({ token: device.token, backendUrl });
       const url = await QRCode.toDataURL(payload, { margin: 1, width: 220 });
       setQrUrl(url);
+      setPairingUrl(backendUrl);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to pair");
@@ -538,7 +541,12 @@ function DevicesScreen({ onBack }: { onBack: () => void }) {
           </button>
         </div>
         {qrUrl && (
-          <img src={qrUrl} alt="Pairing QR code" className="h-[220px] w-[220px] rounded-md bg-white p-2" />
+          <div className="space-y-2">
+            <img src={qrUrl} alt="Pairing QR code" className="h-[220px] w-[220px] rounded-md bg-white p-2" />
+            {pairingUrl ? (
+              <p className="font-mono text-[11px] text-muted-foreground break-all">{pairingUrl}</p>
+            ) : null}
+          </div>
         )}
       </div>
     </div>
