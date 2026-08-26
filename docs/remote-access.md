@@ -24,6 +24,14 @@ If pairing later still shows a LAN IP, set `CRUST_BACKEND_URL` to the `https://`
 4. Scan the QR in Expo Go. The phone stores that URL for every later request.
 5. Leave the house. Keep the laptop awake, the backend running, and Serve configured.
 
-If this phone already stored a LAN URL, revoke that device on the Devices screen, then pair again after Serve is up. The phone does not pick up a new URL on its own.
+If this phone already stored a LAN URL, tap Unpair this phone on Workspaces, then pair again after Serve is up. The phone does not pick up a new URL on its own.
 
-Revoke a row on that screen if you lose the device. Tokens do not expire.
+Revoke a row on Devices if you lose the device. Tokens do not expire.
+
+## Before you leave the house
+
+1. `tailscale serve status` shows an `https://` host and `proxy http://127.0.0.1:3001`.
+2. The Devices QR URL is that `https://` host, not a `192.168.*` address.
+3. Phone Workspaces shows the same `https://` URL under the title.
+4. Tailscale on the phone is connected.
+5. Expo Go is already on Workspaces. A cold start off Wi-Fi cannot load Metro. See [issue 17](https://github.com/khalatevarun/crust/issues/17).

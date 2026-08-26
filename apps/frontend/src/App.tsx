@@ -76,14 +76,16 @@ function ChatWindow() {
   const { activeSessionId } = useContext(AppContext);
   const { messages, setMessages } = useSessionEvents(activeSessionId);
   const [input, setInput] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
 
   function sendMessage() {
     const text = input.trim();
     if (!text || !activeSessionId) return;
 
+    setSendError(null);
     setMessages((prev) => [...prev, { role: "user", payload: { message: text } }]);
     void addMessage(activeSessionId, text).catch((err) => {
-      console.error("failed to send message", err);
+      setSendError(err instanceof Error ? err.message : "failed to send");
     });
     setInput("");
   }
@@ -103,6 +105,7 @@ function ChatWindow() {
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        {sendError && <p className="text-xs text-destructive">{sendError}</p>}
         {messages.length === 0 && (
           <div className="text-sm text-muted-foreground">
             No messages yet. Say hello.

@@ -513,6 +513,24 @@ describe("http api", () => {
         expect(buf).toContain("\"message\":\"ok\"");
     });
 
+    test("SSE accepts a Bearer token with no query string", async () => {
+        const session = await repo.createSession(WID_A, "claude", "claude-sonnet-5");
+        if (!session) throw new Error("session");
+        const streamRes = await fetch(`${base}/api/sessions/${session.id}/events`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        expect(streamRes.status).toBe(200);
+        expect(streamRes.headers.get("content-type")).toContain("text/event-stream");
+        streamRes.body?.cancel();
+    });
+
+    test("SSE without a token is 401", async () => {
+        const session = await repo.createSession(WID_A, "claude", "claude-sonnet-5");
+        if (!session) throw new Error("session");
+        const res = await fetch(`${base}/api/sessions/${session.id}/events`);
+        expect(res.status).toBe(401);
+    });
+
     test("SSE 404s when the session does not exist", async () => {
         const res = await api(`/api/sessions/${SID_MISSING}/events`);
         expect(res.status).toBe(404);

@@ -1,18 +1,33 @@
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { Link, useFocusEffect } from "expo-router";
+import { Link, router, useFocusEffect } from "expo-router";
 import type { WorkspaceSummary } from "commons";
 import { createWorkspace, deleteWorkspace, getSnapshot } from "../src/api";
+import { isUnreachableError, reachError } from "../src/backendUrl";
+import { clearPairing, getBackendUrl } from "../src/storage";
 
 export default function WorkspacesScreen() {
     const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+    const [backendUrl, setBackendUrl] = useState<string | null>(null);
     const [path, setPath] = useState("");
     const [error, setError] = useState<string | null>(null);
 
     const load = useCallback(() => {
-        getSnapshot()
-            .then((data) => setWorkspaces(data.workspaces))
-            .catch((err: unknown) => setError(err instanceof Error ? err.message : "failed to load"));
+        void (async () => {
+            const url = await getBackendUrl();
+            setBackendUrl(url);
+            try {
+                const data = await getSnapshot();
+                setWorkspaces(data.workspaces);
+                setError(null);
+            } catch (err: unknown) {
+                if (url && isUnreachableError(err)) {
+                    setError(reachError(url));
+                    return;
+                }
+                setError(err instanceof Error ? err.message : "failed to load");
+            }
+        })();
     }, []);
 
     useFocusEffect(
@@ -31,6 +46,11 @@ export default function WorkspacesScreen() {
             load();
         }
     }
+    async function unpair() {
+        await clearPairing();
+        router.replace("/");
+    }
+
     async function add() {
         const next = path.trim();
         if (!next) return;
@@ -47,6 +67,7 @@ export default function WorkspacesScreen() {
     return (
         <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
             <Text style={styles.title}>Workspaces</Text>
+            {backendUrl ? <Text style={styles.muted}>{backendUrl}</Text> : null}
             {error && <Text style={styles.error}>{error}</Text>}
             {workspaces.map((workspace) => (
                 <View key={workspace.id} style={styles.card}>
@@ -72,6 +93,9 @@ export default function WorkspacesScreen() {
             />
             <Pressable style={styles.button} onPress={() => void add()}>
                 <Text style={styles.buttonText}>New workspace</Text>
+            </Pressable>
+            <Pressable onPress={() => void unpair()}>
+                <Text style={styles.delete}>Unpair this phone</Text>
             </Pressable>
         </ScrollView>
     );

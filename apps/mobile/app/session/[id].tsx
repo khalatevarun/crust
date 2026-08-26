@@ -4,6 +4,8 @@ import { useLocalSearchParams } from "expo-router";
 import EventSource from "react-native-sse";
 import type { Message } from "commons";
 import { addMessage, getMessages, sessionEventsTarget } from "../../src/api";
+import { isUnreachableError, reachError } from "../../src/backendUrl";
+import { getBackendUrl } from "../../src/storage";
 
 export default function SessionScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -51,7 +53,14 @@ export default function SessionScreen() {
                     ]);
                 });
             } catch (err) {
-                if (!cancelled) setError(err instanceof Error ? err.message : "failed to open session");
+                if (cancelled) return;
+                const url = await getBackendUrl();
+                if (cancelled) return;
+                if (url && isUnreachableError(err)) {
+                    setError(reachError(url));
+                    return;
+                }
+                setError(err instanceof Error ? err.message : "failed to open session");
             }
         }
 
@@ -70,6 +79,11 @@ export default function SessionScreen() {
         try {
             await addMessage(id, text);
         } catch (err) {
+            const url = await getBackendUrl();
+            if (url && isUnreachableError(err)) {
+                setError(reachError(url));
+                return;
+            }
             setError(err instanceof Error ? err.message : "failed to send");
         }
     }

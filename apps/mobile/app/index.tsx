@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { confirmPairing } from "../src/api";
+import { backendUrlKind, isUnreachableError, reachError } from "../src/backendUrl";
 import { parsePairPayload } from "../src/pairing";
 import { getBackendUrl, getToken, savePairing } from "../src/storage";
 
@@ -34,6 +35,10 @@ export default function PairScreen() {
             setError("QR is not a crust pairing code");
             return;
         }
+        if (backendUrlKind(payload.backendUrl) === "loopback") {
+            setError(reachError(payload.backendUrl));
+            return;
+        }
         setBusy(true);
         setError(null);
         try {
@@ -42,14 +47,7 @@ export default function PairScreen() {
             router.replace("/workspaces");
         } catch (err) {
             const message = err instanceof Error ? err.message : "pairing failed";
-            const unreachable = message === "Network request failed"
-                || message === "Failed to fetch"
-                || err instanceof TypeError;
-            setError(
-                unreachable
-                    ? `Cannot reach ${payload.backendUrl}. Phone and Mac must be on the same network, and the QR host cannot be localhost.`
-                    : message,
-            );
+            setError(isUnreachableError(err) ? reachError(payload.backendUrl) : message);
             setBusy(false);
         }
     }
